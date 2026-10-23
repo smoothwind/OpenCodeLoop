@@ -1,0 +1,17 @@
+node_modules/
+out/
+dist/
+vendor/
+coverage/
+test-results/
+playwright-report/
+*.log
+.DS_Store
+
+# 运行时便携数据（配置/日志/缓存），不入库
+data/
+.opencode/
+# IDE
+.idea/
+# 备份文件
+*.bak

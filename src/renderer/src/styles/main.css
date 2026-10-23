@@ -1,0 +1,928 @@
+/* OpenCodeLoop 应用样式 — 全部走 UxKit 语义令牌（禁裸色/间距走 --ux-sp-*） */
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--ux-font-family);
+  font-size: var(--ux-fs-md);
+  color: var(--ux-fg);
+  background: var(--ux-bg);
+  overflow: hidden;
+}
+
+.ol-shell {
+  height: 100vh;
+}
+
+.ol-body {
+  display: flex;
+  height: 100%;
+  /* UxAppShell body 槽为 flex row：子项按内容收缩，必须显式铺满 */
+  width: 100%;
+}
+
+.ol-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* ---------- 工具栏 ---------- */
+
+.ol-toolbar-title {
+  font-size: var(--ux-fs-md);
+  font-weight: var(--ux-fw-semibold);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ux-sp-2);
+  white-space: nowrap;
+}
+
+.ol-toolbar-project {
+  font-size: var(--ux-fs-sm);
+  color: var(--ux-fg-muted);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- 视图容器与分屏 ---------- */
+
+.ol-split {
+  flex: 1;
+  min-height: 0;
+}
+
+.ol-view {
+  height: 100%;
+  overflow-y: auto;
+  padding: var(--ux-sp-4) var(--ux-sp-5);
+  box-sizing: border-box;
+}
+
+.ol-log-pane {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--ux-band-border);
+  background: var(--ux-bg-panel);
+  min-height: 0;
+}
+
+.ol-log-pane .ux-log {
+  flex: 1;
+  min-height: 0;
+}
+
+/* ---------- 通用块 ---------- */
+
+.ol-card {
+  background: var(--ux-bg-panel);
+  border: 1px solid var(--ux-border);
+  border-radius: var(--ux-radius-lg);
+  padding: var(--ux-sp-4);
+  margin-bottom: var(--ux-sp-4);
+}
+
+.ol-card__title {
+  font-size: var(--ux-fs-sm);
+  font-weight: var(--ux-fw-semibold);
+  color: var(--ux-fg-muted);
+  margin: 0 0 var(--ux-sp-3);
+  display: flex;
+  align-items: center;
+  gap: var(--ux-sp-2);
+}
+
+.ol-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--ux-sp-3) var(--ux-sp-4);
+  align-content: start;
+}
+
+.ol-kv {
+  min-width: 0;
+  margin: 0;
+}
+
+.ol-kv dt {
+  font-size: var(--ux-fs-xs);
+  color: var(--ux-fg-subtle);
+  margin: 0 0 2px;
+}
+
+.ol-kv dd {
+  margin: 0;
+  font-size: var(--ux-fs-md);
+  color: var(--ux-fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ol-kv dd--wrap,
+.ol-kv--wrap dd {
+  white-space: normal;
+  word-break: break-all;
+}
+
+.ol-actions {
+  display: flex;
+  gap: var(--ux-sp-2);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.ol-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ux-sp-2);
+  flex-wrap: wrap;
+}
+
+.ol-note {
+  font-size: var(--ux-fs-sm);
+  color: var(--ux-fg-muted);
+  display: flex;
+  gap: var(--ux-sp-2);
+  align-items: flex-start;
+  line-height: var(--ux-lh-relaxed);
+}
+
+.ol-note .ux-icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.ol-note--warning {
+  color: var(--ux-warning-fg);
+  background: var(--ux-warning-subtle);
+  border-radius: var(--ux-radius);
+  padding: var(--ux-sp-2) var(--ux-sp-3);
+}
+
+.ol-hint {
+  font-size: var(--ux-fs-xs);
+  color: var(--ux-fg-subtle);
+}
+
+/* ---------- 表单 ---------- */
+
+.ol-form {
+  display: grid;
+  grid-template-columns: minmax(280px, 520px);
+  gap: var(--ux-sp-4);
+}
+
+.ol-form-row {
+  display: flex;
+  gap: var(--ux-sp-2);
+  align-items: flex-end;
+}
+
+.ol-form-row .ux-field {
+  flex: 1;
+}
+
+.ol-check {
+  display: flex;
+  align-items: center;
+  gap: var(--ux-sp-2);
+  font-size: var(--ux-fs-sm);
+  color: var(--ux-fg);
+  cursor: pointer;
+  user-select: none;
+}
+
+.ol-check input[type='checkbox'] {
+  accent-color: var(--ux-accent);
+  width: 15px;
+  height: 15px;
+}
+
+.ol-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 170px;
+  resize: vertical;
+  padding: var(--ux-sp-2) var(--ux-sp-3);
+  border: 1px solid var(--ux-border);
+  border-radius: var(--ux-radius);
+  background: var(--ux-bg);
+  color: var(--ux-fg);
+  font-size: var(--ux-fs-sm);
+  font-family: var(--ux-font-family);
+  line-height: var(--ux-lh-relaxed);
+}
+
+.ol-textarea:focus-visible {
+  outline: var(--ux-focus-width) solid var(--ux-focus-ring);
+  outline-offset: -1px;
+  border-color: var(--ux-accent);
+}
+
+.ol-textarea[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.ol-num {
+  width: 110px;
+}
+
+/* ---------- 会话列表 ---------- */
+
+.ol-sess {
+  border: 1px solid var(--ux-border);
+  border-radius: var(--ux-radius);
+  overflow: hidden;
+}
+
+.ol-sess__item {
+  display: flex;
+  align-items: center;
+  gap: var(--ux-sp-3);
+  padding: var(--ux-sp-2) var(--ux-sp-3);
+  border-bottom: 1px solid var(--ux-border);
+  cursor: pointer;
+}
+
+.ol-sess__item:last-child {
+  border-bottom: none;
+}
+
+.ol-sess__item:hover {
+  background: var(--ux-bg-hover);
+}
+
+.ol-sess__item--sel {
+  /* 行级选中惯例（同 UxTree.is-selected）：淡主色 + 左缘指示条；bg-selected 是控件级实心主色，整行铺会淹没文字 */
+  background: var(--ux-accent-subtle);
+  box-shadow: inset 2px 0 0 var(--ux-accent);
+}
+
+.ol-sess__item--sel .ol-sess__title {
+  color: var(--ux-accent-fg);
+  font-weight: var(--ux-fw-medium);
+}
+
+.ol-sess__item--sel .ol-sess__id,
+.ol-sess__item--sel .ol-hint {
+  color: var(--ux-fg);
+}
+
+.ol-sess__id {
+  font-family: var(--ux-font-family-mono);
+  font-size: var(--ux-fs-xs);
+  color: var(--ux-fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.ol-sess__title {
+  font-size: var(--ux-fs-sm);
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ol-mono {
+  font-family: var(--ux-font-family-mono);
+  font-size: var(--ux-fs-xs);
+}
+
+/* ---------- 权限规则表 ---------- */
+
+.ol-rules {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ux-sp-2);
+}
+
+.ol-rule {
+  display: flex;
+  gap: var(--ux-sp-2);
+  align-items: center;
+}
+
+.ol-rule .ux-field {
+  flex: 1;
+  min-width: 160px;
+}
+
+.ol-raw {
+  font-family: var(--ux-font-family-mono);
+  font-size: var(--ux-fs-xs);
+  background: var(--ux-bg-sunken);
+  border: 1px solid var(--ux-border);
+  border-radius: var(--ux-radius);
+  padding: var(--ux-sp-3);
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+  color: var(--ux-fg-muted);
+}
+
+/* ---------- 状态栏 ---------- */
+
+.ol-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ux-sp-2);
+  font-size: var(--ux-fs-xs);
+  color: var(--ux-fg-muted);
+}
+
+.ol-status__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--ux-radius-full);
+  background: var(--ux-fg-subtle);
+}
+
+.ol-status__dot--success {
+  background: var(--ux-success);
+}
+
+.ol-status__dot--warning {
+  background: var(--ux-warning);
+}
+
+.ol-status__dot--danger {
+  background: var(--ux-danger);
+}
+
+/* ---------- 等待重启倒计时横幅 ---------- */
+
+.ol-waiting {
+  display: flex;
+  align-items: center;
+  gap: var(--ux-sp-3);
+  background: var(--ux-warning-subtle);
+  color: var(--ux-warning-fg);
+  border-radius: var(--ux-radius);
+  padding: var(--ux-sp-2) var(--ux-sp-3);
+  margin-bottom: var(--ux-sp-4);
+  flex-wrap: wrap;
+}
+
+.ol-waiting__text {
+  font-size: var(--ux-fs-sm);
+}
+
+.ol-waiting__num {
+  font-size: var(--ux-fs-xl);
+  font-weight: var(--ux-fw-semibold);
+  font-variant-numeric: tabular-nums;
+  min-width: 2ch;
+  display: inline-block;
+  text-align: center;
+}
+
+.ol-waiting__spin {
+  animation: ol-spin 1.6s linear infinite;
+}
+
+@keyframes ol-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---------- 任务卡片 ---------- */
+
+.ol-tasks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: var(--ux-sp-3);
+  align-content: start;
+}
+
+.ol-task {
+  background: var(--ux-bg-panel);
+  border: 1px solid var(--ux-border);
+  border-radius: var(--ux-radius-lg);
+  padding: var(--ux-sp-3) var(--ux-sp-4);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ux-sp-2);
+  min-width: 0;
+}
+
+.ol-task--sel {
+  border-color: var(--ux-accent);
+  box-shadow: 0 0 0 1px var(--ux-accent);
+}
+
+.ol-task__head {
+  display: flex;
+  align-items: center;
+  gap: var(--ux-sp-2);
+  min-width: 0;
+}
+
+.ol-task__name {
+  font-size: var(--ux-fs-md);
+  font-weight: var(--ux-fw-semibold);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.ol-task__path {
+  display: flex;
+  align-items: center;
+  gap: var(--ux-sp-2);
+  font-family: var(--ux-font-family-mono);
+  font-size: var(--ux-fs-xs);
+  color: var(--ux-fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.ol-task__pathicon {
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+}
+
+.ol-task__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ux-sp-1) var(--ux-sp-3);
+  font-size: var(--ux-fs-xs);
+  color: var(--ux-fg-subtle);
+}
+
+.ol-task__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ux-sp-1) var(--ux-sp-4);
+  font-size: var(--ux-fs-xs);
+  color: var(--ux-fg-subtle);
+}
+
+.ol-task__stats strong {
+  color: var(--ux-fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.ol-good {
+  color: var(--ux-success-fg);
+}
+
+.ol-bad {
+  color: var(--ux-danger-fg);
+}
+
+.ol-task__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--ux-sp-2);
+  margin-top: var(--ux-sp-1);
+  padding-top: var(--ux-sp-2);
+  border-top: 1px solid var(--ux-border);
+}
+
+.ol-taskform {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ux-sp-3);
+  min-width: 560px;
+  max-width: 680px;
+}
+
+/* 对话框分区标题：主色竖条 + 小字 */
+.ol-sec {
+  display: flex;
+  align-items: center;
+  gap: var(--ux-sp-2);
+  font-size: var(--ux-fs-xs);
+  font-weight: var(--ux-fw-semibold);
+  color: var(--ux-fg-muted);
+  letter-spacing: 0.04em;
+  margin: var(--ux-sp-1) 0 var(--ux-sp-1);
+}
+
+.ol-sec::before {
+  content: '';
+  width: 3px;
+  height: 12px;
+  background: var(--ux-accent);
+  border-radius: var(--ux-radius-full);
+}
+
+/* 对话框「运行」区：一个整体容器，内部会话策略/模型各为独立子块（带=chrome、内容=画布） */
+.ol-run {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ux-sp-3);
+}
+
+.ol-run__group {
+  border: 1px solid var(--ux-border);
+  border-radius: var(--ux-radius-lg);
+  background: var(--ux-bg-panel);
+  overflow: hidden;
+}
+
+.ol-run__head {
+  padding: var(--ux-sp-2) var(--ux-sp-3);
+  font-size: var(--ux-fs-xs);
+  font-weight: var(--ux-fw-semibold);
+  color: var(--ux-fg-muted);
+  background: var(--ux-band-bg);
+  border-bottom: 1px solid var(--ux-band-border);
+}
+
+.ol-run__body {
+  padding: var(--ux-sp-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ux-sp-2);
+}
+
+/* 对话框设置行：标签列 + 控件列（对齐 SettingsShell 风格） */
+.ol-setrow {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: var(--ux-sp-2) var(--ux-sp-3);
+  align-items: start;
+}
+
+.ol-setrow__label {
+  font-size: var(--ux-fs-sm);
+  color: var(--ux-fg-muted);
+  padding-top: 6px;
+}
+
+.ol-setrow__ctrl {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ux-sp-2);
+  min-width: 0;
+}
+
+/* 高级选项折叠块 */
+.ol-adv {
+  border: 1px solid var(--ux-border);
+  border-radius: var(--ux-radius);
+  padding: var(--ux-sp-2) var(--ux-sp-3);
+  background: var(--ux-bg-sunken);
+}
+
+.ol-adv summary {
+  cursor: pointer;
+  font-size: var(--ux-fs-sm);
+  color: var(--ux-fg-muted);
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: var(--ux-sp-2);
+}
+
+.ol-adv__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--ux-radius-full);
+  background: var(--ux-warning);
+  flex-shrink: 0;
+}
+
+.ol-adv[open] summary {
+  margin-bottom: var(--ux-sp-3);
+}
+
+.ol-adv__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ux-sp-3);
+}
+
+.ol-form__label {
+  font-size: var(--ux-fs-sm);
+  color: var(--ux-fg-muted);
+  min-width: 42px;
+}
+
+/* ---------- 任务列表模式（任务多时紧凑视图） ---------- */
+
+.ol-tlist {
+  border: 1px solid var(--ux-border);
+  border-radius: var(--ux-radius-lg);
+  overflow-x: auto;
+  background: var(--ux-bg-panel);
+}
+
+.ol-tlist__head,
+.ol-tlist__row {
+  display: grid;
+  grid-template-columns:
+    minmax(110px, 1.1fr)
+    92px
+    minmax(150px, 1.4fr)
+    88px
+    52px
+    92px
+    minmax(180px, auto);
+  gap: var(--ux-sp-2);
+  align-items: center;
+  padding: var(--ux-sp-2) var(--ux-sp-3);
+  min-width: 780px;
+}
+
+.ol-tlist__head {
+  font-size: var(--ux-fs-xs);
+  color: var(--ux-fg-subtle);
+  background: var(--ux-band-bg);
+  border-bottom: 1px solid var(--ux-band-border);
+}
+
+.ol-tlist__row {
+  border-bottom: 1px solid var(--ux-border);
+  cursor: pointer;
+}
+
+.ol-tlist__row:last-child {
+  border-bottom: none;
+}
+
+.ol-tlist__row:hover {
+  background: var(--ux-bg-hover);
+}
+
+.ol-tlist__row--sel {
+  /* 行选中用淡主色 + 左缘指示条；bg-selected 是控件级实心主色，整行铺会淹没文字 */
+  background: var(--ux-accent-subtle);
+  box-shadow: inset 2px 0 0 var(--ux-accent);
+}
+
+.ol-tlist__row--sel .ol-tlist__name {
+  color: var(--ux-accent-fg);
+}
+
+.ol-tlist__row--sel .ol-tlist__path,
+.ol-tlist__row--sel .ol-tlist__mode,
+.ol-tlist__row--sel .ol-tlist__num {
+  color: var(--ux-fg);
+}
+
+.ol-tlist__name {
+  font-size: var(--ux-fs-sm);
+  font-weight: var(--ux-fw-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.ol-tlist__path {
+  font-family: var(--ux-font-family-mono);
+  font-size: var(--ux-fs-xs);
+  color: var(--ux-fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.ol-tlist__mode {
+  font-size: var(--ux-fs-xs);
+  color: var(--ux-fg-muted);
+}
+
+.ol-tlist__num {
+  font-variant-numeric: tabular-nums;
+  font-size: var(--ux-fs-xs);
+  color: var(--ux-fg);
+}
+
+.ol-tlist__ops {
+  display: flex;
+  gap: 2px;
+  justify-content: flex-end;
+}
+
+/* ---------- 状态 Hero / 指标瓦片 / 配置 chips / 活动流 ---------- */
+
+.ol-hero {
+  display: flex;
+  align-items: center;
+  gap: var(--ux-sp-3);
+  padding: var(--ux-sp-3) var(--ux-sp-4);
+}
+
+.ol-hero__desc {
+  font-size: var(--ux-fs-sm);
+  color: var(--ux-fg-muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ol-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--ux-sp-3);
+  margin-bottom: var(--ux-sp-4);
+  align-content: start;
+}
+
+.ol-stat {
+  background: var(--ux-bg-panel);
+  border: 1px solid var(--ux-border);
+  border-radius: var(--ux-radius-lg);
+  padding: var(--ux-sp-3) var(--ux-sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ol-stat__label {
+  font-size: var(--ux-fs-xs);
+  color: var(--ux-fg-subtle);
+}
+
+.ol-stat__value {
+  font-size: var(--ux-fs-xl);
+  font-weight: var(--ux-fw-semibold);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ol-stat__value--good {
+  color: var(--ux-success-fg);
+}
+
+.ol-stat__value--bad {
+  color: var(--ux-danger-fg);
+}
+
+.ol-stat__value--warn {
+  color: var(--ux-warning-fg);
+}
+
+.ol-conf {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ux-sp-2);
+}
+
+.ol-conf__item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ux-sp-2);
+  border: 1px solid var(--ux-border);
+  background: var(--ux-bg);
+  border-radius: var(--ux-radius-full);
+  padding: 3px var(--ux-sp-3);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--ux-fs-xs);
+  color: var(--ux-fg-muted);
+  max-width: 320px;
+  min-width: 0;
+}
+
+.ol-conf__item:hover {
+  background: var(--ux-bg-hover);
+  border-color: var(--ux-border-strong);
+}
+
+.ol-conf__item:focus-visible {
+  outline: var(--ux-focus-width) solid var(--ux-focus-ring);
+  outline-offset: 1px;
+}
+
+.ol-conf__k {
+  color: var(--ux-fg-subtle);
+  flex-shrink: 0;
+}
+
+.ol-conf__v {
+  color: var(--ux-fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ol-act {
+  max-height: 190px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.ol-act__row {
+  display: flex;
+  gap: var(--ux-sp-2);
+  align-items: center;
+  padding: 2px 0;
+  font-size: var(--ux-fs-xs);
+  min-width: 0;
+}
+
+.ol-act__time {
+  font-family: var(--ux-font-family-mono);
+  color: var(--ux-fg-subtle);
+  flex-shrink: 0;
+}
+
+.ol-act__icon {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+}
+
+.ol-act__icon--info {
+  color: var(--ux-fg-subtle);
+}
+
+.ol-act__icon--warn {
+  color: var(--ux-warning);
+}
+
+.ol-act__icon--error {
+  color: var(--ux-danger);
+}
+
+.ol-act__text {
+  color: var(--ux-fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* ---------- 环境依赖检测 ---------- */
+
+.ol-env {
+  display: flex;
+  flex-direction: column;
+}
+
+.ol-env__row {
+  display: flex;
+  align-items: center;
+  gap: var(--ux-sp-3);
+  padding: var(--ux-sp-2) 0;
+  border-bottom: 1px solid var(--ux-border);
+  min-width: 0;
+}
+
+.ol-env__row:last-child {
+  border-bottom: none;
+}
+
+.ol-env__name {
+  font-size: var(--ux-fs-sm);
+  font-weight: var(--ux-fw-medium);
+  min-width: 88px;
+}
+
+.ol-env__ver {
+  min-width: 90px;
+  color: var(--ux-fg-muted);
+}
+
+.ol-env__path {
+  flex: 1;
+  font-family: var(--ux-font-family-mono);
+  font-size: var(--ux-fs-xs);
+  color: var(--ux-fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* ---------- 空态包装 ---------- */
+
+.ol-empty-wrap {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

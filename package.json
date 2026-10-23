@@ -1,0 +1,26 @@
+{
+  "name": "opencodeloop",
+  "version": "0.1.0",
+  "description": "OpenCode 无人值守守护管理台：会话检测、权限审批、固定提示词与自动重启循环",
+  "main": "./out/main/index.js",
+  "author": "Aides",
+  "license": "MIT",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron .",
+    "test": "vitest run",
+    "sync-ux": "node scripts/sync-ux.mjs",
+    "dist": "electron-vite build && electron-builder --win"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.9",
+    "electron": "^44.4.3",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "vitest": "^3.2.4"
+  },
+  "dependencies": {
+    "vue": "^3.5.43"
+  }
+}
