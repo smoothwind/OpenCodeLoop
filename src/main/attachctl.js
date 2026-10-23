@@ -7,6 +7,22 @@ import { run, cmdQuote, readServiceAuth } from './opencode.js'
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
+/**
+ * 修复托管服务端口冲突：45278 被僵死的 opencode 服务占用时，
+ * 结束该进程让下一个 CLI 实例重新拉起健康服务。
+ * 仅终止进程名为 opencode 的监听者（pid 复用/其他程序一律拒绝）。
+ */
+export async function repairServiceConflict(port) {
+  const listener = await getListener(port)
+  if (!listener) return { ok: false, reason: 'none' }
+  if (!/^opencode/i.test(listener.name)) {
+    return { ok: false, reason: 'not-opencode', name: listener.name, pid: listener.pid }
+  }
+  await killTree(listener.pid)
+  await sleep(1200)
+  return { ok: true, pid: listener.pid, name: listener.name }
+}
+
 /** 解析 attach URL → { port, hostname, healthUrl }（纯函数，可单测） */
 export function parseAttachTarget(url) {
   let u

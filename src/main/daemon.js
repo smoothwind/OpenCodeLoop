@@ -182,6 +182,10 @@ export class Daemon extends EventEmitter {
     this.lineLimit = opts.lineLimit ?? 800
     /** 可选：实际模型解析器 (sessionId) => Promise<string>（守护不直接依赖 CLI 实现） */
     this.resolveModel = typeof opts.resolveModel === 'function' ? opts.resolveModel : null
+    /** 可选：托管服务端口冲突修复器 (port) => Promise<{ok, pid?}> */
+    this.repairConflict = typeof opts.repairConflict === 'function' ? opts.repairConflict : null
+    this._svcFixes = 0
+    this._svcPort = null
     this.state = initialState()
     /** 环形日志缓冲：{ time, level, title, detail } */
     this.lines = []
@@ -247,10 +251,12 @@ export class Daemon extends EventEmitter {
       this.doneHit = false
       this.doneBuf = ''
       this._lineBuf = ''
-      this.restartCount = 0
-      this._failStreak = 0
-      this._nextLabel = ''
-      this.cfg = cfg
+    this.restartCount = 0
+    this._failStreak = 0
+    this._nextLabel = ''
+    this._svcFixes = 0
+    this._svcPort = null
+    this.cfg = cfg
       this.bin = bin
       this.caps = caps
       this.state = initialState()
@@ -322,6 +328,12 @@ export class Daemon extends EventEmitter {
     })
   }
 
+  /** 检测输出中的 opencode 托管服务端口冲突（45278 被僵死服务占用） */
+  _detectSvcConflict(text) {
+    const m = String(text || '').match(/Managed service port (\d+) on 127\.0\.0\.1 is already in use/)
+    if (m) this._svcPort = Number(m[1])
+  }
+
   _kill(reason) {
     const p = this.proc
     this.proc = null
@@ -340,6 +352,26 @@ export class Daemon extends EventEmitter {
       const code = await this._runOnce(gen)
       if (gen !== this._gen) return
       if (this.stopRequested) return
+
+      // 托管服务端口冲突：自动修复（结束僵死服务进程）后立即重试，不计入失败重启
+      if (this._svcPort && !this.doneHit) {
+        const port = this._svcPort
+        this._svcPort = null
+        if (this.repairConflict && this._svcFixes < 3) {
+          this._svcFixes++
+          this.state.status = 'waiting'
+          this.state.nextRestartAt = null
+          this.log('warn', `检测到 opencode 托管服务端口 ${port} 冲突，正在自动修复（第 ${this._svcFixes}/3 次）…`)
+          this.emitState()
+          const r = await this.repairConflict(port).catch(() => null)
+          if (r && r.ok) this.log('info', `已结束僵死的 opencode 服务进程（pid ${r.pid}），即将重试`)
+          else this.log('warn', `自动修复未执行：${r?.reason === 'not-opencode' ? `端口被 ${r.name}(pid ${r.pid}) 占用` : r?.reason || '无监听进程'}`)
+          await this._sleep(3000)
+          if (gen !== this._gen) return
+          continue
+        }
+        this.log('warn', '托管服务端口冲突重试已达上限，按普通失败处理')
+      }
 
       if (this.doneHit) {
         // 迭代模式：DONE 轮完成后自动开始下一轮，直至总轮数上限
@@ -488,6 +520,7 @@ export class Daemon extends EventEmitter {
       const onChunk = (buf, stream) => {
         const text = buf.toString('utf-8')
         this._writeLog(text)
+        this._detectSvcConflict(text)
         if (stream === 'stderr') return
         this.doneBuf = (this.doneBuf + text).slice(-DONE_BUF_CAP)
         if (!this.doneHit && isDone(this.doneBuf, this.cfg.doneKeyword)) {
@@ -521,8 +554,10 @@ export class Daemon extends EventEmitter {
 
       child.stdout.on('data', (b) => onChunk(b, 'stdout'))
       child.stderr.on('data', (b) => {
-        const t = b.toString('utf-8').trim()
-        this._writeLog(b.toString('utf-8'))
+        const text = b.toString('utf-8')
+        this._writeLog(text)
+        this._detectSvcConflict(text)
+        const t = text.trim()
         if (t) this.emitLine({ time: Date.now(), level: 'warn', title: clip(t, 160), detail: t })
       })
 

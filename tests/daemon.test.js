@@ -185,6 +185,57 @@ describe('并发保护', () => {
   }, 20000)
 })
 
+describe('托管服务端口冲突自动修复', () => {
+  it('冲突输出触发修复器并自动重试，成功后完成', async () => {
+    const { mkdtemp, writeFile, rm } = await import('node:fs/promises')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const proj = await mkdtemp(join(tmpdir(), 'ocl-svc-'))
+    const fake = join(proj, 'fake.cmd')
+    const flag = join(proj, 'conflict.flag')
+    // 第一轮：输出托管服务冲突并 exit 1；修复存根删除标志后，第二轮输出 DONE
+    await writeFile(
+      fake,
+      '@echo off\r\nif exist conflict.flag (\r\n  echo ERROR Managed service port 45278 on 127.0.0.1 is already in use by another process.\r\n  exit /b 1\r\n) else (\r\n  echo DONE\r\n  exit /b 0\r\n)',
+      'utf-8'
+    )
+    const d = new Daemon()
+    let repairs = 0
+    // 注入修复器：删除标志文件模拟"结束僵死服务"
+    d.repairConflict = async () => {
+      repairs++
+      await rm(flag, { force: true })
+      return { ok: true, pid: 4321 }
+    }
+    // 先放一个标志文件使首轮输出冲突
+    await writeFile(flag, '1', 'utf-8')
+
+    const cfg = {
+      ...taskDefaults(),
+      id: 't',
+      project: proj,
+      attachUrl: '',
+      sessionMode: 'new',
+      prompt: 'x',
+      doneKeyword: 'DONE',
+      onDone: 'next',
+      maxRounds: 1,
+      retryDelay: 1,
+      logFile: join(proj, 'l.log')
+    }
+    await d.start(cfg, { path: fake, direct: false })
+    for (let i = 0; i < 40 && !['done', 'error', 'stopped'].includes(d.state.status); i++) {
+      await new Promise((r) => setTimeout(r, 300))
+    }
+    expect(repairs).toBe(1)
+    expect(d.state.runs).toBeGreaterThanOrEqual(2)
+    expect(d.state.status).toBe('done')
+    const titles = d.tail(60).map((l) => l.title)
+    expect(titles.some((t) => t.includes('正在自动修复'))).toBe(true)
+    expect(titles.some((t) => t.includes('僵死的 opencode 服务进程'))).toBe(true)
+  }, 30000)
+})
+
 describe('Daemon 状态机（不真正 spawn：stop 于空闲态）', () => {
   it('初始为 stopped', () => {
     expect(initialState().status).toBe('stopped')

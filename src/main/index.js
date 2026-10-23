@@ -26,7 +26,7 @@ import {
   deleteSession
 } from './opencode.js'
 import { detectEnvironment } from './envdetect.js'
-import { restartAttach } from './attachctl.js'
+import { restartAttach, repairServiceConflict } from './attachctl.js'
 
 const APP_ICON = join(__dirname, '../../resources/icon.png')
 const TRAY_ICON = join(__dirname, '../../resources/tray.png')
@@ -142,7 +142,9 @@ function daemonFor(taskId) {
         if (!task?.project) return ''
         await ensureBinary()
         return sessionModelById(sessionId, task.project, resolvedBin)
-      }
+      },
+      // 托管服务端口冲突自动修复（僵死 opencode 服务）
+      repairConflict: (port) => repairServiceConflict(port)
     })
     d.on('log', (entry) => onDaemonLog(taskId, entry))
     d.on('state', (st) => onDaemonState(taskId, st))
