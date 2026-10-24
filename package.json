@@ -11,7 +11,8 @@
     "start": "electron .",
     "test": "vitest run",
     "sync-ux": "node scripts/sync-ux.mjs",
-    "dist": "electron-vite build && electron-builder --win"
+    "dist": "node scripts/dist-win.mjs",
+    "dist:raw": "electron-vite build && electron-builder --win"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.9",
