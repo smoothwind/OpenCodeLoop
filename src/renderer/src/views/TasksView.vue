@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { UxButton, UxChip, UxDialog, UxIcon, UxInput, UxSegmented, UxTooltip, notify } from '@ux/components'
-import { store, tasks, daemonState, saveTask, removeTask, selectTask, STATUS_META, setConfig, startTaskDaemon, startingIds } from '../store'
+import { store, tasks, daemonState, saveTask, removeTask, selectTask, STATUS_META, setConfig, startTaskDaemon, startingIds, fmtLeft } from '../store'
 import { api } from '../api'
 
 const MODE_OPTIONS = [
@@ -361,9 +361,11 @@ const meta = (t) => STATUS_META[daemonState(t.id).status] || STATUS_META.stopped
 function roundOrCountdown(t) {
   const d = daemonState(t.id)
   if (d.status === 'waiting' && d.nextRestartAt) {
-    return `${Math.max(0, Math.ceil((d.nextRestartAt - nowTick.value) / 1000))}s 后重启`
+    // 等待原因（额度恢复/限流退避等）悬停可见；长等待人性化展示
+    return fmtLeft(d.nextRestartAt - nowTick.value) + '后重启'
   }
-  if (!d.roundStartedAt) return '—'
+  // 仅运行中的任务计时；停止/完成/异常的任务不再计时
+  if (d.status !== 'running' || !d.roundStartedAt) return '—'
   const s = Math.max(0, Math.floor((nowTick.value - d.roundStartedAt) / 1000))
   const m = Math.floor(s / 60)
   return `${m}:${String(s % 60).padStart(2, '0')}`
@@ -446,7 +448,7 @@ const VIEW_MODE_OPTIONS = [
                 :class="daemonState(t.id).lastExitCode === 0 ? 'ol-good' : daemonState(t.id).lastExitCode ? 'ol-bad' : ''"
               >{{ daemonState(t.id).lastExitCode ?? '—' }}</strong>
             </span>
-            <span>本轮 <strong>{{ roundOrCountdown(t) }}</strong></span>
+            <span :title="daemonState(t.id).waitReason || '本轮时长/下次重启倒计时'">本轮 <strong>{{ roundOrCountdown(t) }}</strong></span>
             <span v-if="daemonState(t.id).pid">PID <strong>{{ daemonState(t.id).pid }}</strong></span>
             <span :title="daemonState(t.id).actualModel || daemonState(t.id).model || t.model || '尚未探测到（首轮结束后显示实际模型）'">
               模型 <strong class="ol-tlist__path">{{ daemonState(t.id).actualModel || daemonState(t.id).model || t.model || '—' }}</strong>
@@ -518,7 +520,7 @@ const VIEW_MODE_OPTIONS = [
           <span class="ol-tlist__path" :title="t.project">{{ t.project || '未配置' }}</span>
           <span class="ol-tlist__mode">{{ modeText(t) }}</span>
           <span class="ol-tlist__num">{{ daemonState(t.id).runs }}</span>
-          <span class="ol-tlist__num">{{ roundOrCountdown(t) }}</span>
+          <span class="ol-tlist__num" :title="daemonState(t.id).waitReason || undefined">{{ roundOrCountdown(t) }}</span>
           <span class="ol-tlist__ops" @click.stop>
             <UxTooltip content="启动">
               <UxButton

@@ -18,7 +18,6 @@ export const api = {
   listModels: () => bridge()?.listModels(),
   checkAttach: (arg) => bridge()?.checkAttach(arg),
   attachRestart: (arg) => bridge()?.attachRestart(arg),
-  attachRestart: (arg) => bridge()?.attachRestart(arg),
   readPermissions: (taskId) => bridge()?.readPermissions(taskId),
   writePermissions: (taskId, p) => bridge()?.writePermissions(taskId, p),
   diagnoseBinary: () => bridge()?.diagnoseBinary(),

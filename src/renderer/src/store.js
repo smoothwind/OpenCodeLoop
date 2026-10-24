@@ -8,6 +8,8 @@ export const store = reactive({
   config: null,
   /** 当前操作聚焦的任务 id（会话/权限/提示词页绑定它） */
   selectedTaskId: '',
+  /** 日志面板按任务过滤（'' = 全部任务） */
+  logFilterTaskId: '',
   /** taskId → 守护状态快照 */
   daemons: {},
   sessions: { loading: false, items: [], raw: '', error: '' },
@@ -51,6 +53,16 @@ export function selectTask(id) {
   if (tasks.value.some((t) => t.id === id)) store.selectedTaskId = id
 }
 
+/** 倒计时人性化：45 秒 / 4 分 20 秒 / 3 小时 12 分 */
+export function fmtLeft(ms) {
+  const s = Math.max(0, Math.ceil((Number(ms) || 0) / 1000))
+  if (s < 60) return `${s} 秒`
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m} 分 ${s % 60} 秒`
+  const h = Math.floor(m / 60)
+  return `${h} 小时 ${m % 60} 分`
+}
+
 export function daemonState(taskId) {
   return (
     store.daemons[taskId] || {
@@ -62,6 +74,8 @@ export function daemonState(taskId) {
       doneAt: null,
       nextRestartAt: null,
       lastError: '',
+      waitReason: '',
+      errorKind: '',
       pid: null,
       model: '',
       actualModel: '',
@@ -136,7 +150,11 @@ export async function init() {
   const snaps = (await api.daemonSnapshots()) || []
   for (const s of snaps) {
     store.daemons[s.taskId] = s.state
-    for (const e of s.lines || []) log.push(e.level, `[${taskNameOf(s.taskId)}] ${e.title}`, e.detail)
+    for (const e of s.lines || []) {
+      // 附带 taskId：日志面板按任务/项目过滤依赖该字段
+      const entry = log.push(e.level, `[${taskNameOf(s.taskId)}] ${e.title}`, e.detail)
+      entry.taskId = s.taskId
+    }
   }
 
   api.onDaemonState(({ taskId, state }) => {

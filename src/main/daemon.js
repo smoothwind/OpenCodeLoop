@@ -6,6 +6,12 @@
  * - 退出即按 retryDelay 重启；输出出现完成标记（默认 DONE）则停止
  * - 全量输出落盘日志文件；内存环形缓冲经事件回调上报（UI 日志面板）
  *
+ * 错误分级处理（errpolicy.js）：对每轮累计的错误文本做分类——
+ * - 额度不足：无备选模型 → 等恢复时间到达自动拉起（不消耗重启次数）；
+ *             有备选模型 → 切换备选模型按常规间隔重试
+ * - 鉴权失败：有备选则切换，无备选则停止（同配置重试无意义）
+ * - 限流：至少退避 60s；限流/网络/服务端/未知：按常规间隔重启
+ *
  * 本模块不依赖 electron（回调上报），便于单元测试。
  */
 import { spawn } from 'node:child_process'
@@ -13,6 +19,7 @@ import { EventEmitter } from 'node:events'
 import { createWriteStream } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import { classifyError, planRecovery, KIND_TEXT, formatClock, formatWait } from './errpolicy.js'
 
 /** 日志文件缓冲写入流：集中管理打开/写/关，替代逐块 appendFile */
 export class LogFileWriter {
@@ -134,15 +141,35 @@ export function parseRunEvent(line) {
       const name = String(part.tool || part.state?.title || '未知工具').slice(0, 60)
       const st = part.state?.status ? ` · ${part.state.status}` : ''
       const input = part.state?.input ? JSON.stringify(part.state.input).slice(0, 2000) : ''
+      // 工具失败（state.status === 'error'）：error 级展示并纳入错误分类
+      const toolErr = part.state?.error ? String(part.state.error) : ''
+      if (part.state?.status === 'error' && toolErr) {
+        return {
+          level: 'error',
+          title: `[工具] ${name} · 失败：${toolErr.slice(0, 160)}`,
+          detail: input || toolErr.slice(0, 4000),
+          sessionId,
+          errorText: toolErr.slice(0, 2000)
+        }
+      }
       return { level: 'info', title: `[工具] ${name}${st}`, detail: input || undefined, sessionId }
     }
-    case 'error':
+    case 'error': {
+      // opencode run --format json 的错误事件：
+      // { type:'error', error:{ name, data:{ message, statusCode, isRetryable } } }
+      const err = e.error && typeof e.error === 'object' ? e.error : {}
+      const data = err.data && typeof err.data === 'object' ? err.data : {}
+      const msg = String(e.message || part.message || data.message || err.name || part.error || '未知错误')
+      const code = Number(data.statusCode || e.statusCode) || 0
+      const codeTag = code ? `（HTTP ${code}）` : ''
       return {
         level: 'error',
-        title: `[错误] ${String(e.message || part.message || '未知错误').slice(0, 200)}`,
+        title: `[错误] ${msg.slice(0, 180)}${codeTag}`,
         detail: t.slice(0, 4000),
-        sessionId
+        sessionId,
+        errorText: `${msg}${code ? ` statusCode=${code}` : ''}`
       }
+    }
     default:
       return { skip: true, sessionId }
   }
@@ -166,6 +193,10 @@ export function initialState() {
     doneAt: null,
     nextRestartAt: null,
     lastError: '',
+    /** 等待原因（错误策略：额度恢复/限流退避等，供 UI 展示） */
+    waitReason: '',
+    /** 本轮错误分类（quota/auth/ratelimit/server/network/unknown） */
+    errorKind: '',
     pid: null,
     /** 本轮实际使用的模型（配置解析值，轮启动设置） */
     model: '',
@@ -184,6 +215,8 @@ export class Daemon extends EventEmitter {
     this.resolveModel = typeof opts.resolveModel === 'function' ? opts.resolveModel : null
     /** 可选：托管服务端口冲突修复器 (port) => Promise<{ok, pid?}> */
     this.repairConflict = typeof opts.repairConflict === 'function' ? opts.repairConflict : null
+    /** 错误策略：等待恢复的上限（防错误文案解析偏差导致无限长等） */
+    this.policyMaxWaitMs = Number.isFinite(opts.policyMaxWaitMs) ? opts.policyMaxWaitMs : 24 * 3600 * 1000
     this._svcFixes = 0
     this._svcPort = null
     this.state = initialState()
@@ -251,6 +284,7 @@ export class Daemon extends EventEmitter {
       this.doneHit = false
       this.doneBuf = ''
       this._lineBuf = ''
+      this._errBuf = ''
     this.restartCount = 0
     this._failStreak = 0
     this._nextLabel = ''
@@ -288,6 +322,7 @@ export class Daemon extends EventEmitter {
     this._kill(reason)
     this.state.status = 'stopped'
     this.state.nextRestartAt = null
+    this.state.waitReason = ''
     this.state.pid = null
     this.log('info', reason)
     this.emitState()
@@ -307,11 +342,14 @@ export class Daemon extends EventEmitter {
   }
 
   _clearTimer() {
+    const wake = this._wake
+    this._wake = null
     if (this._timer) {
       clearTimeout(this._timer)
       this._timer = null
     }
-    this._wake = null
+    // 唤醒挂起的 _sleep：停止/终止后 _loop 立即检查代数并退出，不留悬挂计时
+    if (wake) wake()
   }
 
   _sleep(ms) {
@@ -332,6 +370,12 @@ export class Daemon extends EventEmitter {
   _detectSvcConflict(text) {
     const m = String(text || '').match(/Managed service port (\d+) on 127\.0\.0\.1 is already in use/)
     if (m) this._svcPort = Number(m[1])
+  }
+
+  /** 轮内错误文本累计（供退出后分类定策略；封顶防膨胀） */
+  _pushErr(text) {
+    if (!text) return
+    this._errBuf = `${this._errBuf || ''}\n${text}`.slice(-65536)
   }
 
   _kill(reason) {
@@ -373,6 +417,9 @@ export class Daemon extends EventEmitter {
         this.log('warn', '托管服务端口冲突重试已达上限，按普通失败处理')
       }
 
+      let delaySec = Math.max(1, Number(this.cfg.retryDelay) || 1)
+      let untilMs = null
+
       if (this.doneHit) {
         // 迭代模式：DONE 轮完成后自动开始下一轮，直至总轮数上限
         if ((this.cfg.onDone || 'stop') === 'next') {
@@ -387,35 +434,82 @@ export class Daemon extends EventEmitter {
           this.log('info', `第 ${this.state.runs} 轮完成（迭代模式），${this.cfg.retryDelay} 秒后自动开始下一轮`)
           this.doneHit = false
           this.doneBuf = ''
+          this.state.waitReason = ''
           this._nextLabel = '迭代'
         } else {
           this.state.status = 'done'
           this.state.nextRestartAt = null
+          this.state.waitReason = ''
           this.log('info', `检测到完成标记「${this.cfg.doneKeyword}」，守护完成退出`)
           this.emitState()
           this.logWriter.close()
           return
         }
       } else {
-        // 失败重启：计数仅用于 maxRestarts 上限
-        this.restartCount++
-        if (this.cfg.maxRestarts > 0 && this.restartCount >= this.cfg.maxRestarts) {
+        // 错误分类 → 分级处理策略（额度等恢复、鉴权停止、限流退避、常规重启）
+        const cls = classifyError(this._errBuf)
+        const models = effectiveModels(this.cfg)
+        const hasFallback = models.length > 1 && (this._failStreak || 0) < models.length - 1
+        const plan = planRecovery(cls, {
+          hasFallback,
+          retryDelaySec: this.cfg.retryDelay,
+          now: Date.now(),
+          maxWaitMs: this.policyMaxWaitMs
+        })
+        this.state.errorKind = cls.kind
+        const tag =
+          cls.kind !== 'unknown' ? `（${KIND_TEXT[cls.kind] || cls.kind}${cls.match ? `：${cls.match}` : ''}）` : ''
+
+        if (plan.action === 'stop') {
+          // 鉴权失败且无备选：同配置重试无意义，明确停止
           this.state.status = 'error'
-          this.state.lastError = `重启次数达到上限（${this.cfg.maxRestarts}），守护停止`
-          this.log('error', this.state.lastError)
+          this.state.lastError = plan.reason
+          this.state.nextRestartAt = null
+          this.state.waitReason = ''
+          this.log('error', `守护停止：${plan.reason}${tag}`)
           this.emitState()
           this.logWriter.close()
           return
         }
-        this._nextLabel = `重启 #${this.restartCount}`
-        this.log('info', `进程退出（exit=${code ?? '?'}），${this.cfg.retryDelay} 秒后重启（第 ${this.restartCount} 次）`)
+
+        if (plan.action === 'wait') {
+          // 额度/限流窗口：等恢复时间到达后自动拉起，不消耗重启次数
+          this._nextLabel = '额度恢复'
+          this.state.waitReason = plan.reason
+          this.log(
+            'warn',
+            `${KIND_TEXT[cls.kind] || cls.kind}（${cls.match || '未识别详情'}）：已排定 ${formatClock(plan.until)} 自动继续` +
+              `（等待 ${formatWait(plan.until - Date.now())}，不消耗重启次数）`
+          )
+          untilMs = plan.until
+          delaySec = 0
+        } else {
+          // 失败重启：计数仅用于 maxRestarts 上限
+          this.restartCount++
+          if (this.cfg.maxRestarts > 0 && this.restartCount >= this.cfg.maxRestarts) {
+            this.state.status = 'error'
+            this.state.lastError = `重启次数达到上限（${this.cfg.maxRestarts}），守护停止`
+            this.log('error', this.state.lastError)
+            this.emitState()
+            this.logWriter.close()
+            return
+          }
+          // 事件流中已识别出需切换模型的错误但退出码为 0 时，同样顺延备选
+          if (plan.switchModel && code === 0) this._failStreak = (this._failStreak || 0) + 1
+          this._nextLabel = `重启 #${this.restartCount}`
+          this.state.waitReason = plan.reason || ''
+          delaySec = Math.max(1, Number(plan.delaySec) || Number(this.cfg.retryDelay) || 1)
+          this.log(
+            'info',
+            `进程退出（exit=${code ?? '?'}），${delaySec} 秒后重启（第 ${this.restartCount} 次）${tag}`
+          )
+        }
       }
 
-      const delay = Math.max(1, Number(this.cfg.retryDelay) || 0) * 1000
       this.state.status = 'waiting'
-      this.state.nextRestartAt = Date.now() + delay
+      this.state.nextRestartAt = untilMs != null ? untilMs : Date.now() + delaySec * 1000
       this.emitState()
-      await this._sleep(delay)
+      await this._sleep(Math.max(1000, this.state.nextRestartAt - Date.now()))
       if (gen !== this._gen) return
       this.skipDelay = false
       this.state.nextRestartAt = null
@@ -454,6 +548,8 @@ export class Daemon extends EventEmitter {
       this.state.runs++
       this.state.roundStartedAt = Date.now()
       this.state.model = this._roundModel || ''
+      this._errBuf = ''
+      this.state.waitReason = ''
       const modelTag = this._roundModel ? ` · 模型 ${this._roundModel}` : ''
       const kind = this._nextLabel || '首轮'
       this._nextLabel = ''
@@ -545,7 +641,11 @@ export class Daemon extends EventEmitter {
               this.state.sessionId = ev.sessionId
               this.emitState()
             }
-            if (ev && !ev.skip) this.emitLine({ time: Date.now(), level: ev.level, title: ev.title, detail: ev.detail })
+            if (ev && !ev.skip) {
+              this.emitLine({ time: Date.now(), level: ev.level, title: ev.title, detail: ev.detail })
+              // 错误事件纳入轮内错误缓冲，供退出后分类定策略
+              if (ev.level === 'error' && ev.errorText) this._pushErr(ev.errorText)
+            }
           } else {
             this.emitLine({ time: Date.now(), level: 'info', title: clip(t, 160), detail: t })
           }
@@ -558,6 +658,8 @@ export class Daemon extends EventEmitter {
         this._writeLog(text)
         this._detectSvcConflict(text)
         const t = text.trim()
+        // stderr 错误文案纳入分类缓冲（额度不足等错误常经 stderr 输出）
+        if (t) this._pushErr(t)
         if (t) this.emitLine({ time: Date.now(), level: 'warn', title: clip(t, 160), detail: t })
       })
 
@@ -577,7 +679,10 @@ export class Daemon extends EventEmitter {
               this.state.sessionId = evEvent.sessionId
               this.emitState()
             }
-            if (evEvent && !evEvent.skip) this.emitLine({ time: Date.now(), level: evEvent.level, title: evEvent.title, detail: evEvent.detail })
+            if (evEvent && !evEvent.skip) {
+              this.emitLine({ time: Date.now(), level: evEvent.level, title: evEvent.title, detail: evEvent.detail })
+              if (evEvent.level === 'error' && evEvent.errorText) this._pushErr(evEvent.errorText)
+            }
           } else {
             this.emitLine({ time: Date.now(), level: 'info', title: clip(rest, 160), detail: rest })
           }

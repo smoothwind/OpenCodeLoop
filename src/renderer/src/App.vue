@@ -19,7 +19,8 @@ import {
   selectTask,
   daemonState,
   startTaskDaemon,
-  startingIds
+  startingIds,
+  fmtLeft
 } from './store'
 import { api } from './api'
 import TasksView from './views/TasksView.vue'
@@ -123,18 +124,16 @@ onBeforeUnmount(() => {
   stopWatch()
 })
 
-const waitingLeft = computed(() => {
-  const d = daemonState(currentTask.value?.id)
-  if (d.status !== 'waiting' || !d.nextRestartAt) return 0
-  return Math.max(0, Math.ceil((d.nextRestartAt - nowTick.value) / 1000))
-})
-
 const statusBarText = computed(() => {
   const d = daemonState(currentTask.value?.id)
   const name = currentTask.value?.name || '—'
   const head = `${name}：`
   if (d.status === 'running') return `${head}守护中 · 第 ${d.runs} 轮${d.pid ? ` · PID ${d.pid}` : ''}`
-  if (d.status === 'waiting') return `${head}等待重启 · ${waitingLeft.value} 秒后第 ${d.runs + 1} 轮`
+  if (d.status === 'waiting') {
+    const reason = d.waitReason ? `（${d.waitReason}）` : ''
+    const left = d.nextRestartAt ? ` · ${fmtLeft(d.nextRestartAt - nowTick.value)}后第 ${d.runs + 1} 轮` : ''
+    return `${head}等待中${reason}${left}`
+  }
   if (d.status === 'done') return `${head}已完成 · 共 ${d.runs} 轮`
   if (d.status === 'error') return `${head}${d.lastError || '异常停止'}`
   return `${head}未运行`
@@ -160,9 +159,16 @@ const attachText = computed(() => {
   return 'attach 未检测'
 })
 
-// LogPanel 门面：DOM 只渲染最近 300 条（环形缓冲仍有 800 条，防长跑时 DOM 膨胀）
+// 项目目录末段（D:\Code\MyApp → MyApp），用于过滤选项展示
+const baseName = (p) => String(p || '').split(/[\\/]/).filter(Boolean).pop() || ''
+
+// LogPanel 门面：按任务/项目过滤后只渲染最近 300 条（环形缓冲仍有 800 条，防长跑时 DOM 膨胀）
 const paneLog = computed(() => ({
-  entries: computed(() => log.entries.value.slice(-300)),
+  entries: computed(() => {
+    const f = store.logFilterTaskId
+    const list = f ? log.entries.value.filter((e) => e.taskId === f) : log.entries.value
+    return list.slice(-300)
+  }),
   unreadErrors: log.unreadErrors,
   markOpened: () => log.markOpened(),
   clear: () => log.clear()
@@ -248,6 +254,19 @@ const paneLog = computed(() => ({
           </template>
           <template #second>
             <div class="ol-log-pane">
+              <div class="ol-log-filter">
+                <span class="ol-hint">按任务过滤</span>
+                <select
+                  v-model="store.logFilterTaskId"
+                  class="ol-log-filter__select"
+                  aria-label="按任务/项目过滤日志消息"
+                >
+                  <option value="">全部任务（{{ tasks.length }}）</option>
+                  <option v-for="t in tasks" :key="t.id" :value="t.id">
+                    {{ t.name }}{{ t.project ? ` · ${baseName(t.project)}` : '' }}
+                  </option>
+                </select>
+              </div>
               <LogPanel :log="paneLog" label="守护日志" />
             </div>
           </template>

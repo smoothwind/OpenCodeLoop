@@ -10,7 +10,6 @@ import {
   parseRunEvent
 } from '../src/main/daemon.js'
 import { taskDefaults, newTaskId, sanitizeTask } from '../src/main/store.js'
-
 const baseCfg = () => ({
   ...taskDefaults(),
   id: 't1',
@@ -140,6 +139,31 @@ describe('parseRunEvent（智能体交互事件解析）', () => {
     expect(e.title).toContain('模型连接失败')
   })
 
+  it('opencode 原生错误事件（error.data.message + statusCode）→ 提取信息并供分类', () => {
+    const raw = {
+      type: 'error',
+      timestamp: 1767036065000,
+      sessionID: 'ses_q',
+      error: { name: 'APIError', data: { message: 'Rate limit exceeded', statusCode: 429, isRetryable: true } }
+    }
+    const e = parseRunEvent(JSON.stringify(raw))
+    expect(e.level).toBe('error')
+    expect(e.title).toContain('Rate limit exceeded')
+    expect(e.title).toContain('HTTP 429')
+    expect(e.errorText).toContain('429')
+  })
+
+  it('工具失败（state.status=error）→ error 级并带 errorText', () => {
+    const e = parseRunEvent(
+      JSON.stringify({
+        type: 'tool',
+        part: { type: 'tool', tool: 'bash', state: { status: 'error', error: 'command failed with code 1' } }
+      })
+    )
+    expect(e.level).toBe('error')
+    expect(e.errorText).toContain('command failed')
+  })
+
   it('step_start / reasoning 噪声 → skip（仅捕获 sessionId）', () => {
     const e = parseRunEvent(JSON.stringify({ type: 'step_start', sessionID: 'ses_x', part: {} }))
     expect(e).toMatchObject({ skip: true, sessionId: 'ses_x' })
@@ -234,6 +258,130 @@ describe('托管服务端口冲突自动修复', () => {
     expect(titles.some((t) => t.includes('正在自动修复'))).toBe(true)
     expect(titles.some((t) => t.includes('僵死的 opencode 服务进程'))).toBe(true)
   }, 30000)
+})
+
+describe('错误分级处理策略（额度恢复 / 鉴权停止）', () => {
+  const waitDone = (d, timeout = 30000) =>
+    new Promise((resolve) => {
+      const t0 = Date.now()
+      const timer = setInterval(() => {
+        if (['done', 'error', 'stopped'].includes(d.state.status) || Date.now() - t0 > timeout) {
+          clearInterval(timer)
+          resolve(d.state.status)
+        }
+      }, 200)
+    })
+
+  it('额度不足含恢复时间：无备选 → 等待恢复点自动拉起，不消耗重启次数', async () => {
+    const { mkdtemp, writeFile } = await import('node:fs/promises')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const proj = await mkdtemp(join(tmpdir(), 'ocl-quota-'))
+    const fake = join(proj, 'fake.cmd')
+    // 第一轮：stderr 输出额度错误（含恢复时间）并 exit 1；第二轮输出 DONE
+    await writeFile(
+      fake,
+      '@echo off\r\nif exist retry.flag (\r\n  del retry.flag\r\n  echo DONE\r\n  exit /b 0\r\n) else (\r\n  type nul > retry.flag\r\n  echo 套餐额度已用尽，将于 2099-01-01 00:00 恢复 1>&2\r\n  exit /b 1\r\n)',
+      'utf-8'
+    )
+    const d = new Daemon({ policyMaxWaitMs: 1500 }) // 测试：等待封顶 1.5s
+    const cfg = {
+      ...taskDefaults(),
+      id: 't',
+      project: proj,
+      attachUrl: '',
+      sessionMode: 'new',
+      prompt: 'x',
+      doneKeyword: 'DONE',
+      retryDelay: 1,
+      logFile: join(proj, 'l.log')
+    }
+    await d.start(cfg, { path: fake, direct: false })
+    const status = await waitDone(d)
+    expect(status).toBe('done')
+    expect(d.state.runs).toBe(2)
+    expect(d.state.errorKind).toBe('quota')
+    const titles = d.tail(60).map((l) => l.title)
+    expect(titles.some((t) => t.includes('已排定') && t.includes('自动继续'))).toBe(true)
+    // 等待期间曾出现恢复原因与等待状态
+    expect(titles.some((t) => t.includes('额度不足'))).toBe(true)
+  }, 40000)
+
+  it('额度不足 + 备选模型 → 切换备选模型重试', async () => {
+    const { mkdtemp, writeFile } = await import('node:fs/promises')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const proj = await mkdtemp(join(tmpdir(), 'ocl-quota2-'))
+    const fake = join(proj, 'fake.cmd')
+    await writeFile(
+      fake,
+      '@echo off\r\nif exist retry.flag (\r\n  del retry.flag\r\n  echo DONE\r\n  exit /b 0\r\n) else (\r\n  type nul > retry.flag\r\n  echo 模型请求额度不足，请稍后重试 1>&2\r\n  exit /b 1\r\n)',
+      'utf-8'
+    )
+    const d = new Daemon()
+    const cfg = {
+      ...taskDefaults(),
+      id: 't',
+      project: proj,
+      attachUrl: '',
+      sessionMode: 'new',
+      prompt: 'x',
+      doneKeyword: 'DONE',
+      model: 'a/primary',
+      // 两个备选：首轮失败后仍有备选可切换（避免落到末端长退避）
+      fallbackModels: ['b/fb1', 'b/fb2'],
+      retryDelay: 1,
+      logFile: join(proj, 'l.log')
+    }
+    await d.start(cfg, { path: fake, direct: false })
+    const status = await waitDone(d)
+    expect(status).toBe('done')
+    // 失败轮已顺延到备选模型
+    expect(d.state.model).toBe('b/fb1')
+    expect(d.state.errorKind).toBe('quota')
+  }, 40000)
+
+  it('鉴权失败且无备选 → 守护明确停止并给出原因', async () => {
+    const { mkdtemp, writeFile } = await import('node:fs/promises')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const proj = await mkdtemp(join(tmpdir(), 'ocl-auth-'))
+    const fake = join(proj, 'fake.cmd')
+    await writeFile(
+      fake,
+      '@echo off\r\necho unexpected status 401 Unauthorized 1>&2\r\nexit /b 1',
+      'utf-8'
+    )
+    const d = new Daemon()
+    const cfg = {
+      ...taskDefaults(),
+      id: 't',
+      project: proj,
+      attachUrl: '',
+      sessionMode: 'new',
+      prompt: 'x',
+      retryDelay: 1,
+      logFile: join(proj, 'l.log')
+    }
+    await d.start(cfg, { path: fake, direct: false })
+    const status = await waitDone(d)
+    expect(status).toBe('error')
+    expect(d.state.runs).toBe(1)
+    expect(d.state.errorKind).toBe('auth')
+    expect(d.state.lastError).toContain('鉴权失败')
+    expect(d.state.nextRestartAt).toBeNull()
+  }, 40000)
+
+  it('停止的守护清理等待状态，不再显示倒计时依据', async () => {
+    const d = new Daemon()
+    d.state.status = 'waiting'
+    d.state.nextRestartAt = Date.now() + 60 * 1000
+    d.state.waitReason = '额度不足，等待恢复后自动继续'
+    d.stop('手动停止测试')
+    expect(d.state.status).toBe('stopped')
+    expect(d.state.nextRestartAt).toBeNull()
+    expect(d.state.waitReason).toBe('')
+  })
 })
 
 describe('Daemon 状态机（不真正 spawn：stop 于空闲态）', () => {

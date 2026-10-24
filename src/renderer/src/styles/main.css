@@ -77,6 +77,28 @@ body {
   min-height: 0;
 }
 
+/* 日志按任务/项目过滤条 */
+.ol-log-filter {
+  display: flex;
+  align-items: center;
+  gap: var(--ux-sp-2);
+  padding: var(--ux-sp-1) var(--ux-sp-3);
+  border-bottom: 1px solid var(--ux-border);
+  flex-shrink: 0;
+}
+
+.ol-log-filter__select {
+  font: inherit;
+  font-size: var(--ux-fs-xs);
+  color: var(--ux-fg);
+  background: var(--ux-bg);
+  border: 1px solid var(--ux-border);
+  border-radius: var(--ux-radius);
+  padding: 2px var(--ux-sp-2);
+  max-width: 300px;
+  min-width: 0;
+}
+
 .ol-log-pane .ux-log {
   flex: 1;
   min-height: 0;
