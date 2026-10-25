@@ -30,8 +30,11 @@ export const api = {
   revealPath: (p) => bridge()?.revealPath(p),
   openLogFile: (taskId) => bridge()?.openLogFile(taskId),
   revealLogFile: (taskId) => bridge()?.revealLogFile(taskId),
+  updateCheck: () => bridge()?.updateCheck(),
+  openExternal: (url) => bridge()?.openExternal(url),
   onDaemonState: (cb) => bridge()?.onDaemonState(cb) || (() => {}),
   onDaemonLog: (cb) => bridge()?.onDaemonLog(cb) || (() => {}),
   onDaemonError: (cb) => bridge()?.onDaemonError(cb) || (() => {}),
+  onUpdateAvailable: (cb) => bridge()?.onUpdateAvailable(cb) || (() => {}),
   onMenuAction: (cb) => bridge()?.onMenuAction(cb) || (() => {})
 }

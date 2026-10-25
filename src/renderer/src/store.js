@@ -17,6 +17,8 @@ export const store = reactive({
   view: 'dashboard',
   /** 各视图的日志面板显隐（null = 未手动覆盖） */
   logsOverride: {},
+  /** 更新检测结果（status: available|latest|none|error） */
+  update: { checking: false, result: null },
   splitRatio: 0.62,
   binary: null
 })
@@ -151,6 +153,28 @@ export async function startTaskDaemon(taskId) {
 }
 
 let offLog = null
+let offUpdate = null
+
+/** 解绑守护/更新推送（窗口卸载时调用） */
+export function disposeListeners() {
+  offLog?.()
+  offLog = null
+  offUpdate?.()
+  offUpdate = null
+}
+
+/** 手动/自动检查更新（只提醒，不下载）；结果写入 store.update 并返回 */
+export async function checkUpdate() {
+  if (store.update.checking) return store.update.result
+  store.update.checking = true
+  try {
+    const r = await api.updateCheck()
+    store.update.result = r || { status: 'error', error: '无响应' }
+    return store.update.result
+  } finally {
+    store.update.checking = false
+  }
+}
 
 export async function init() {
   if (store.ready) return
@@ -176,6 +200,12 @@ export async function init() {
     }
   })
   api.onDaemonError(({ taskId, message }) => pushLog('error', String(message), undefined, taskId))
+
+  // 主进程启动自检发现新版本时推送（App 层负责提示）
+  offUpdate?.()
+  offUpdate = api.onUpdateAvailable((info) => {
+    if (info) store.update.result = info
+  })
 
   // 守护事件会覆盖注入，这里不 ready 会导致视图空白
   store.ready = true

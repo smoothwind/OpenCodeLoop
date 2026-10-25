@@ -2,9 +2,9 @@
  * main/index.js — OpenCodeLoop 桌面入口
  * 多任务守护管理：窗口 / 托盘 / 菜单 / IPC / DaemonManager
  */
-import { app, shell, BrowserWindow, Menu, Tray, nativeImage, ipcMain, dialog, nativeTheme, screen } from 'electron'
+import { app, shell, BrowserWindow, Menu, Tray, nativeImage, ipcMain, dialog, nativeTheme, screen, net } from 'electron'
 import { join, dirname } from 'node:path'
-import { existsSync, mkdirSync, accessSync, copyFileSync, constants } from 'node:fs'
+import { existsSync, mkdirSync, accessSync, copyFileSync, constants, readFileSync } from 'node:fs'
 import { appendFile } from 'node:fs/promises'
 import { readOrphans, writeOrphans, reapOrphans, runningList } from './orphan.js'
 import { ConfigStore, configPath } from './store.js'
@@ -31,6 +31,7 @@ import {
 import { detectEnvironment } from './envdetect.js'
 import { restartAttach, repairServiceConflict } from './attachctl.js'
 import { SessionLease } from './sessiongate.js'
+import { checkForUpdate, feedFromAppUpdateYml, DEFAULT_FEED } from './updater.js'
 
 const APP_ICON = join(__dirname, '../../resources/icon.png')
 const TRAY_ICON = join(__dirname, '../../resources/tray.png')
@@ -90,6 +91,36 @@ const send = (channel, ...args) => {
 
 const taskById = (id) => store.all.tasks.find((t) => t.id === id)
 const taskName = (id) => taskById(id)?.name || id
+
+// ---------- 更新检测（只提醒，不自动下载） ----------
+
+/** 更新源：优先读打包生成的 app-update.yml（GitHub provider），缺省用内置常量 */
+function updateFeed() {
+  try {
+    const file = join(process.resourcesPath || '', 'app-update.yml')
+    if (existsSync(file)) {
+      const feed = feedFromAppUpdateYml(readFileSync(file, 'utf-8'))
+      if (feed) return feed
+    }
+  } catch {
+    /* 读取失败时用默认源 */
+  }
+  return DEFAULT_FEED
+}
+
+/** 检查更新；push=true 且发现新版本时推送渲染层提醒（绝不下载安装包） */
+async function runUpdateCheck({ push = false } = {}) {
+  // race 兜底：个别网络环境下 AbortSignal 可能不生效
+  const task = checkForUpdate({
+    currentVersion: app.getVersion(),
+    feed: updateFeed(),
+    fetchImpl: (url, opts) => net.fetch(url, opts)
+  })
+  const guard = new Promise((resolve) => setTimeout(() => resolve({ status: 'error', error: '请求超时' }), 12000))
+  const r = await Promise.race([task, guard])
+  if (push && r?.status === 'available') send('update:available', r)
+  return r
+}
 
 // ---------- 主进程错误日志（userData/logs/main-*.log，避免未捕获异常直接崩溃） ----------
 
@@ -318,7 +349,10 @@ function rebuildMenu() {
     },
     {
       label: '帮助',
-      submenu: [{ label: '关于 OpenCodeLoop', click: action('about') }]
+      submenu: [
+        { label: '检查更新…', click: action('update:check') },
+        { label: '关于 OpenCodeLoop', click: action('about') }
+      ]
     }
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
@@ -659,6 +693,17 @@ function registerIpc() {
     return { ok: true }
   })
 
+  // 更新检测（只提醒，不自动下载）
+  ipcMain.handle('update:check', () => runUpdateCheck())
+  ipcMain.handle('shell:open-external', (_e, url) => {
+    const u = String(url || '')
+    if (!/^https:\/\//i.test(u)) return { ok: false, error: '仅允许打开 https 链接' }
+    return shell
+      .openExternal(u)
+      .then(() => ({ ok: true }))
+      .catch((err) => ({ ok: false, error: String(err?.message || err) }))
+  })
+
   ipcMain.on('app:quit', () => {
     forceQuit = true
     stopAll()
@@ -700,6 +745,11 @@ if (!gotLock) {
     ensureBinary()
       .then((b) => (b ? detectRunFlags(b) : null))
       .catch(() => {})
+
+    // 启动后延迟检查更新（只提醒，不自动下载；可在设置中关闭）
+    if (store.all.checkUpdateOnStart !== false) {
+      setTimeout(() => runUpdateCheck({ push: true }).catch(() => {}), 8000)
+    }
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()

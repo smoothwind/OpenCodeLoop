@@ -1,8 +1,10 @@
 <script setup>
 import { onMounted, ref, watch } from 'vue'
 import { UxButton, UxChip, UxIcon, UxInput, UxSegmented, UxTooltip, notify } from '@ux/components'
-import { store, setConfig } from '../store'
+import { store, setConfig, checkUpdate } from '../store'
 import { api } from '../api'
+
+const appVersion = __APP_VERSION__
 
 const THEME_OPTIONS = [
   { value: 'system', label: '跟随系统' },
@@ -80,6 +82,23 @@ async function pickExe() {
   if (r && !r.canceled) setConfig({ opencodePath: r.path })
 }
 
+// ---------- 更新检测（只提醒，不自动下载） ----------
+
+async function onCheckUpdate() {
+  const r = await checkUpdate()
+  if (r?.status === 'latest') notify({ type: 'success', message: `已是最新版本（v${appVersion}）` })
+  else if (r?.status === 'none') notify({ type: 'info', message: '更新源还没有发布版本' })
+  else if (r?.status === 'error') notify({ type: 'warning', message: `检查更新失败：${r.error || '未知原因'}` })
+  else if (r?.status === 'available') notify({ type: 'info', message: `发现新版本 v${r.version}` })
+}
+
+async function openRelease() {
+  const url = store.update.result?.url
+  if (!url) return
+  const r = await api.openExternal(url)
+  if (r && !r.ok) notify({ type: 'warning', message: r.error || '打开失败' })
+}
+
 onMounted(async () => {
   detectEnv()
   const d = await api.dataDir()
@@ -120,6 +139,64 @@ onMounted(async () => {
         <UxIcon name="st-info" />
         托盘图标常驻显示全部任务状态；项目目录 / 提示词 / 会话策略 / 模型 / 重启参数均属于任务——在「任务」页管理。
       </p>
+    </div>
+
+    <div class="ol-card">
+      <h3 class="ol-card__title">
+        更新检测
+        <UxChip tone="neutral">v{{ appVersion }}</UxChip>
+        <span style="flex: 1"></span>
+        <UxButton
+          size="sm"
+          variant="secondary"
+          icon="act-retry"
+          label="检查更新"
+          :loading="store.update.checking"
+          @click="onCheckUpdate"
+        >检查更新</UxButton>
+      </h3>
+      <div class="ol-form">
+        <label class="ol-check">
+          <input
+            type="checkbox"
+            :checked="store.config.checkUpdateOnStart"
+            @change="(e) => setConfig({ checkUpdateOnStart: e.target.checked })"
+          />
+          启动时自动检查更新（仅提醒，不自动下载）
+        </label>
+        <template v-if="store.update.result">
+          <div v-if="store.update.result.status === 'available'" class="ol-setrow">
+            <span class="ol-setrow__label">发现新版本</span>
+            <div class="ol-setrow__ctrl">
+              <div class="ol-row">
+                <span>
+                  <strong>v{{ store.update.result.version }}</strong>
+                  <span class="ol-hint">（当前 v{{ appVersion }}）</span>
+                </span>
+                <UxButton
+                  v-if="store.update.result.url"
+                  size="sm"
+                  variant="primary"
+                  label="前往发布页查看与下载"
+                  @click="openRelease"
+                >前往发布页</UxButton>
+              </div>
+              <pre
+                v-if="store.update.result.notes"
+                class="ol-hint"
+                style="white-space: pre-wrap; max-height: 180px; overflow: auto; margin: 0"
+              >{{ store.update.result.notes }}</pre>
+            </div>
+          </div>
+          <p v-else-if="store.update.result.status === 'latest'" class="ol-hint">已是最新版本。</p>
+          <p v-else-if="store.update.result.status === 'none'" class="ol-hint">更新源还没有发布版本。</p>
+          <p v-else class="ol-hint">检查失败：{{ store.update.result.error }}</p>
+        </template>
+        <p class="ol-note" style="margin-top: var(--ux-sp-3)">
+          <UxIcon name="st-info" />
+          仅查询 GitHub Releases 的最新版本号并提醒，不会自动下载或安装；升级需自行前往发布页下载。
+        </p>
+      </div>
     </div>
 
     <div class="ol-card">

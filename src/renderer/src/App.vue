@@ -20,7 +20,9 @@ import {
   daemonState,
   startTaskDaemon,
   startingIds,
-  fmtLeft
+  fmtLeft,
+  checkUpdate,
+  disposeListeners
 } from './store'
 import { api } from './api'
 import TasksView from './views/TasksView.vue'
@@ -88,7 +90,7 @@ async function restartDaemon() {
   await api.daemonRestart(currentTask.value.id)
 }
 
-// ---------- 菜单事件 ----------
+// ---------- 菜单事件 / 更新提醒 ----------
 
 const offMenu = api.onMenuAction(async (name, payload) => {
   if (name === 'view') {
@@ -101,10 +103,27 @@ const offMenu = api.onMenuAction(async (name, payload) => {
   } else if (name === 'log:reveal') {
     const r = await api.revealLogFile(currentTask.value?.id)
     if (r && !r.ok) notify({ type: 'warning', message: r.error || '未找到日志' })
+  } else if (name === 'update:check') {
+    await checkUpdate()
+    toastUpdateResult(store.update.result)
   } else if (name === 'about') {
     notify({ type: 'info', message: `OpenCodeLoop v${__APP_VERSION__} — 无人值守守护管理台` })
   }
 })
+
+/** 检查结果的统一提示（发现新版本只提醒，不自动下载） */
+function toastUpdateResult(r) {
+  if (!r) return
+  if (r.status === 'available') {
+    notify({ type: 'info', message: `发现新版本 v${r.version}，可在「设置 → 更新检测」查看`, duration: 12000 })
+  } else if (r.status === 'latest') {
+    notify({ type: 'success', message: `已是最新版本（v${__APP_VERSION__}）` })
+  } else if (r.status === 'none') {
+    notify({ type: 'info', message: '更新源还没有发布版本' })
+  } else {
+    notify({ type: 'warning', message: `检查更新失败：${r.error || '未知原因'}` })
+  }
+}
 
 // ---------- 状态栏 ----------
 
@@ -115,12 +134,17 @@ onMounted(async () => {
   await init()
   refreshAttach()
   ticker = setInterval(() => (nowTick.value = Date.now()), 1000)
+  // 主进程启动自检发现新版本时推送提醒
+  api.onUpdateAvailable((info) => {
+    if (info && store.update.result !== info) store.update.result = info
+    if (info?.status === 'available') toastUpdateResult(info)
+  })
 })
 
 onBeforeUnmount(() => {
   clearInterval(ticker)
   offMenu?.()
-  offLog?.()
+  disposeListeners()
   stopWatch()
 })
 

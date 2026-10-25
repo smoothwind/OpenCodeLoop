@@ -35,10 +35,13 @@ contextBridge.exposeInMainWorld('opencodeloop', {
   pickFolder: (defaultPath) => ipcRenderer.invoke('dialog:pick-folder', defaultPath),
   openLogFile: (taskId) => ipcRenderer.invoke('log:open', taskId),
   revealLogFile: (taskId) => ipcRenderer.invoke('log:reveal', taskId),
+  updateCheck: () => ipcRenderer.invoke('update:check'),
+  openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
   quitApp: () => ipcRenderer.send('app:quit'),
 
   onDaemonState: subscribe('daemon:state'),
   onDaemonLog: subscribe('daemon:log'),
   onDaemonError: subscribe('daemon:error'),
+  onUpdateAvailable: subscribe('update:available'),
   onMenuAction: subscribe('menu:action')
 })

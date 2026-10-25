@@ -12,6 +12,8 @@ export function defaultConfig() {
     closeToTray: true,
     /** 随系统开机启动应用（托盘隐藏运行） */
     loginAtBoot: false,
+    /** 启动时检查更新（只提醒，不自动下载） */
+    checkUpdateOnStart: true,
     theme: 'system',
     promptPresets: [],
     /** 主窗口位置与尺寸（跨启动记忆） */

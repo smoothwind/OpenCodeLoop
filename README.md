@@ -37,6 +37,13 @@ OpenCodeLoop 是 [OpenCode](https://opencode.ai) 的桌面伴生工具（Electro
 
 > 若 TUI 使用 `--standalone` 或连接了另一个独立 opencode 服务，闸门无法看到该服务上的会话状态；默认 TUI 与守护共用同一个托管服务，不受影响。
 
+### 更新检测（只提醒，不自动下载）
+
+- 启动后自动检查一次（可在「设置 → 更新检测」关闭）；也可在设置页或菜单「帮助 → 检查更新…」手动检查
+- 更新源为 GitHub Releases（读取打包生成的 `app-update.yml`），仅比较版本号并展示发布说明，**绝不自动下载 / 安装**
+- 发现新版本时弹出提醒并在设置页提供「前往发布页」按钮，升级由用户自行下载完成
+- 更新源不可达 / 尚无发布版本时安静降级，说明原因即可，不影响守护运行
+
 ### 错误分级处理
 
 守护会对每轮累计的错误文本做分类，按类别执行不同恢复策略（详见 `src/main/errpolicy.js`）：
@@ -112,6 +119,7 @@ src/
     index.js       # 窗口/托盘/菜单/IPC/DaemonManager
     daemon.js      # 守护引擎（状态机：stopped→running⇄waiting→done|error）
     sessiongate.js # 会话闸门与会话租约（纯函数：运行/排队检测、等待上限）
+    updater.js     # 更新检测（GitHub Releases 版本比较，只提醒不下载）
     errpolicy.js   # 错误分类与分级恢复策略（纯函数）
     opencode.js    # opencode CLI / 本地 API / 项目配置桥接
     store.js       # 配置持久化（原子写盘，v1→v2 迁移）
