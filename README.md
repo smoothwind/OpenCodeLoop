@@ -78,7 +78,7 @@ OpenCodeLoop 是 [OpenCode](https://opencode.ai) 的桌面伴生工具（Electro
 
 ### 安装使用（推荐）
 
-从 `dist/OpenCodeLoop-Setup-0.1.1.exe` 安装（NSIS，可选安装目录，创建桌面快捷方式）。
+从 `dist/OpenCodeLoop-Setup-0.1.2.exe` 安装（NSIS，可选安装目录，创建桌面快捷方式）。
 
 前置要求：本机已安装 `opencode` CLI（PATH 可见，或在设置中指定完整路径）。
 
