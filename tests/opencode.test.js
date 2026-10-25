@@ -7,7 +7,8 @@ import {
   exeFromShim,
   cmdQuote,
   parseSessionModel,
-  normalizeApiSession
+  normalizeApiSession,
+  normalizeSessionProbe
 } from '../src/main/opencode.js'
 import { mergeConfig, defaultConfig, ConfigStore, sanitizeTask, taskFromLegacy, defaultConfig as dc } from '../src/main/store.js'
 import { join } from 'node:path'
@@ -72,6 +73,9 @@ describe('sanitizeTask / taskFromLegacy', () => {
     expect(t.autoApprove).toBe(false)
     expect('unknown' in t).toBe(false)
     expect(t.doneKeyword).toBe('DONE')
+    // 会话等待上限：旧配置缺省补 30 分钟，显式值保留
+    expect(t.sessionWaitLimitMin).toBe(30)
+    expect(sanitizeTask({ id: 'b', sessionWaitLimitMin: '0' }).sessionWaitLimitMin).toBe(0)
   })
 
   it('名称缺省取项目目录名', () => {
@@ -185,6 +189,33 @@ describe('normalizeApiSession（API 会话归一化）', () => {
     const s = normalizeApiSession({ id: 'ses_2' })
     expect(s).toMatchObject({ id: 'ses_2', title: '', dir: '', model: '', updated: null })
     expect(normalizeApiSession(null).id).toBe('')
+  })
+})
+
+describe('normalizeSessionProbe（会话状态探测归一化）', () => {
+  it('active 只认当前会话；inbox 取长度；outcome/time 仅用于展示', () => {
+    const p = normalizeSessionProbe(
+      'ses_a',
+      { ses_a: { type: 'running' }, ses_b: { type: 'running' } },
+      { outcome: 'failed', time: { idle: 123, updated: 456 } },
+      [{ id: 'i1' }, { id: 'i2' }]
+    )
+    expect(p.active).toBe(true)
+    expect(p.inbox).toBe(2)
+    expect(p.outcome).toBe('failed')
+    expect(p.idleAt).toBe(123)
+    expect(p.updatedAt).toBe(456)
+  })
+
+  it('缺字段时安全降级；inbox 缺失按 0 处理', () => {
+    expect(normalizeSessionProbe('ses_a', null, null, null)).toEqual({
+      active: false,
+      inbox: 0,
+      outcome: '',
+      idleAt: 0,
+      updatedAt: 0
+    })
+    expect(normalizeSessionProbe('ses_a', { ses_b: { type: 'running' } }, undefined, []).active).toBe(false)
   })
 })
 

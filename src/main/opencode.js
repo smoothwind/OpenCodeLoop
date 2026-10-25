@@ -212,6 +212,110 @@ export async function apiRequest(path, { timeout = 8000 } = {}) {
   }
 }
 
+/**
+ * 带认证的 JSON API 请求（支持请求体、超时与外部取消）。
+ * 返回 { ok, status, data, error, aborted }：aborted 表示被调用方的 signal 取消。
+ */
+async function apiFetch(path, { method = 'GET', body, timeout = 8000, signal } = {}) {
+  const auth = await readServiceAuth()
+  if (!auth) return { ok: false, error: '未找到 opencode 服务凭据（service.json）' }
+  if (signal?.aborted) return { ok: false, aborted: true, error: '已取消' }
+  const ctrl = new AbortController()
+  const onAbort = () => ctrl.abort()
+  signal?.addEventListener('abort', onAbort, { once: true })
+  const timer = setTimeout(() => ctrl.abort(), timeout)
+  try {
+    const res = await fetch(auth.url + path, {
+      method,
+      headers: {
+        Authorization: auth.header,
+        ...(body === undefined ? {} : { 'Content-Type': 'application/json' })
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: ctrl.signal
+    })
+    const text = await res.text()
+    let data = null
+    if (text) {
+      try {
+        data = JSON.parse(text)
+      } catch {
+        data = null
+      }
+    }
+    if (!res.ok) {
+      return { ok: false, status: res.status, data, error: data?.message || `HTTP ${res.status}` }
+    }
+    return { ok: true, status: res.status, data }
+  } catch (err) {
+    const aborted = !!signal?.aborted
+    return {
+      ok: false,
+      aborted,
+      timeout: !aborted,
+      error: aborted ? '已取消' : String(err?.message || err)
+    }
+  } finally {
+    clearTimeout(timer)
+    signal?.removeEventListener('abort', onAbort)
+  }
+}
+
+/** 归一化会话状态探测结果（纯函数，可单测） */
+export function normalizeSessionProbe(sessionId, activeMap, info, inbox) {
+  return {
+    active: !!(activeMap && activeMap[sessionId]),
+    inbox: Array.isArray(inbox) ? inbox.length : 0,
+    outcome: String(info?.outcome || ''),
+    idleAt: Number(info?.time?.idle) || 0,
+    updatedAt: Number(info?.time?.updated) || 0
+  }
+}
+
+/**
+ * 探测指定会话的真实状态：
+ * - `GET /api/session/active`：权威的“正在执行”标记（不在结果中即空闲）
+ * - `GET /api/session/{id}/inbox`：尚未投递的排队消息
+ * - `GET /api/session/{id}`：上次执行结果与空闲时间（仅用于展示/日志）
+ * outcome/time.idle 在运行期间仍是上一次的值，不能单独用于判断忙碌。
+ */
+export async function probeSession(sessionId) {
+  if (!sessionId) return { ok: false, error: '缺少会话 ID' }
+  const sid = encodeURIComponent(sessionId)
+  const [active, info, inbox] = await Promise.all([
+    apiRequest('/api/session/active'),
+    apiRequest(`/api/session/${sid}`),
+    apiRequest(`/api/session/${sid}/inbox`)
+  ])
+  if (!active.ok) return { ok: false, error: active.error || '会话状态不可用' }
+  const p = normalizeSessionProbe(
+    sessionId,
+    active.data?.data,
+    info.ok ? info.data?.data : null,
+    inbox.ok ? inbox.data?.data : []
+  )
+  return { ok: true, ...p, inboxKnown: inbox.ok, error: '' }
+}
+
+/** 等待会话 agent loop 空闲（长轮询：204 = 已空闲；503 = 服务暂不可用） */
+export async function waitSessionIdle(sessionId, { timeoutMs = 60000, signal } = {}) {
+  if (!sessionId) return { ok: false, error: '缺少会话 ID' }
+  const r = await apiFetch(`/api/experimental/session/${encodeURIComponent(sessionId)}/wait`, {
+    method: 'POST',
+    timeout: timeoutMs,
+    signal
+  })
+  return r.ok ? { ok: true } : r
+}
+
+/** 中断会话服务器端执行（只影响当前 active drain；无执行时 interrupted=false） */
+export async function interruptSession(sessionId) {
+  if (!sessionId) return { ok: false, error: '缺少会话 ID' }
+  const r = await apiFetch(`/api/session/${encodeURIComponent(sessionId)}/interrupt`, { method: 'POST' })
+  if (!r.ok) return { ok: false, error: r.error }
+  return { ok: true, interrupted: !!r.data?.interrupted }
+}
+
 /** 归一化 API 会话对象（纯函数，可单测） */
 export function normalizeApiSession(s) {
   return {

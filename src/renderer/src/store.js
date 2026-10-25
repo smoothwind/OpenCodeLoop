@@ -43,6 +43,13 @@ export function toggleLogs() {
 
 export const log = useActivityLog({ limit: 800 })
 
+/** 写日志并标记所属任务（日志面板按任务过滤依赖 taskId；useActivityLog.push 返回的就是缓冲区内的条目） */
+function pushLog(level, title, detail, taskId) {
+  const entry = log.push(level, title, detail)
+  if (taskId) entry.taskId = taskId
+  return entry
+}
+
 export const tasks = computed(() => store.config?.tasks || [])
 
 export const currentTask = computed(
@@ -76,6 +83,7 @@ export function daemonState(taskId) {
       lastError: '',
       waitReason: '',
       errorKind: '',
+      sessionWaitStartedAt: null,
       pid: null,
       model: '',
       actualModel: '',
@@ -120,6 +128,8 @@ export async function removeTask(taskId) {
   const list = plain(tasks.value.filter((t) => t.id !== taskId))
   store.config.tasks = list
   if (store.selectedTaskId === taskId) store.selectedTaskId = list[0]?.id || ''
+  // 被删任务若仍在日志过滤条件里，面板会永远空白：回退到全部任务
+  if (store.logFilterTaskId === taskId) store.logFilterTaskId = ''
   await api.setConfig({ tasks: list })
 }
 
@@ -152,8 +162,7 @@ export async function init() {
     store.daemons[s.taskId] = s.state
     for (const e of s.lines || []) {
       // 附带 taskId：日志面板按任务/项目过滤依赖该字段
-      const entry = log.push(e.level, `[${taskNameOf(s.taskId)}] ${e.title}`, e.detail)
-      entry.taskId = s.taskId
+      pushLog(e.level, `[${taskNameOf(s.taskId)}] ${e.title}`, e.detail, s.taskId)
     }
   }
 
@@ -162,9 +171,11 @@ export async function init() {
   })
   offLog?.()
   offLog = api.onDaemonLog((entries) => {
-    for (const e of entries || []) log.push(e.level, `[${e.taskName || taskNameOf(e.taskId)}] ${e.title}`, e.detail)
+    for (const e of entries || []) {
+      pushLog(e.level, `[${e.taskName || taskNameOf(e.taskId)}] ${e.title}`, e.detail, e.taskId)
+    }
   })
-  api.onDaemonError(({ message }) => log.push('error', String(message)))
+  api.onDaemonError(({ taskId, message }) => pushLog('error', String(message), undefined, taskId))
 
   // 守护事件会覆盖注入，这里不 ready 会导致视图空白
   store.ready = true

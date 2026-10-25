@@ -29,6 +29,7 @@ const blankTask = () => ({
   fallbackModels: [],
   retryDelay: 120,
   maxRestarts: 0,
+  sessionWaitLimitMin: 30,
   prompt:
     '读取 .progress.md，继续完成未完成的任务。全部完成后输出 DONE。请自主规划、执行、验证、迭代、反思，不得访问项目目录外的系统文件，不要中途请求确认或等待授权，失败就自己诊断修正并继续，直到任务通过验证。修改完自动提交，不要推送代码。',
   doneKeyword: 'DONE',
@@ -73,6 +74,7 @@ const advancedDirty = computed(() => {
     (t.attachUrl || '') === 'http://localhost:4096' &&
     num(t.retryDelay, 120) === 120 &&
     num(t.maxRestarts, 0) === 0 &&
+    num(t.sessionWaitLimitMin, 30) === 30 &&
     !(t.logFile || '').trim() &&
     t.autoApprove === true &&
     t.autoStart === false
@@ -138,6 +140,7 @@ async function confirmSave() {
   }
   t.retryDelay = num(t.retryDelay, 120)
   t.maxRestarts = num(t.maxRestarts, 0)
+  t.sessionWaitLimitMin = num(t.sessionWaitLimitMin, 30)
   // 未开「自定义模型」时清空模型配置（使用会话默认）
   if (!customModel.value) {
     t.model = ''
@@ -364,11 +367,20 @@ function roundOrCountdown(t) {
     // 等待原因（额度恢复/限流退避等）悬停可见；长等待人性化展示
     return fmtLeft(d.nextRestartAt - nowTick.value) + '后重启'
   }
+  // 会话闸门等待：没有重启倒计时，只显示等待时长
+  if (d.status === 'waiting' && d.sessionWaitStartedAt) {
+    return `等待空闲 ${fmtLeft(nowTick.value - d.sessionWaitStartedAt)}`
+  }
   // 仅运行中的任务计时；停止/完成/异常的任务不再计时
   if (d.status !== 'running' || !d.roundStartedAt) return '—'
   const s = Math.max(0, Math.floor((nowTick.value - d.roundStartedAt) / 1000))
   const m = Math.floor(s / 60)
   return `${m}:${String(s % 60).padStart(2, '0')}`
+}
+
+const waitLimitText = (t) => {
+  const m = num(t.sessionWaitLimitMin, 30)
+  return m > 0 ? `会话等待 ≤${m} 分` : '会话等待不限'
 }
 
 const modeText = (t) => (t.sessionMode === 'last' ? '最近会话' : t.sessionMode === 'id' ? '指定会话' : '新会话')
@@ -434,6 +446,7 @@ const VIEW_MODE_OPTIONS = [
             <span>{{ t.autoApprove ? '自动批准' : '手动审批' }}</span>
             <span>间隔 {{ t.retryDelay }}s</span>
             <span>{{ t.maxRestarts > 0 ? `上限 ${t.maxRestarts} 次` : '无限重启' }}</span>
+            <span v-if="num(t.sessionWaitLimitMin, 30) !== 30">{{ waitLimitText(t) }}</span>
             <span v-if="t.model">
               模型 <strong>{{ t.model }}</strong
               >{{ (t.fallbackModels || []).length ? ` +${t.fallbackModels.length} 备` : '' }}
@@ -786,6 +799,15 @@ const VIEW_MODE_OPTIONS = [
                 :model-value="String(editing.maxRestarts)"
                 label="重启上限（0=无限）"
                 @update:model-value="(v) => (editing.maxRestarts = num(v, 0))"
+              />
+            </div>
+            <div class="ol-form-row">
+              <UxInput
+                class="ol-num"
+                :model-value="String(num(editing.sessionWaitLimitMin, 30))"
+                label="会话等待上限（分钟）"
+                hint="0 = 不限；目标会话运行中或有排队消息时先等待空闲再发送"
+                @update:model-value="(v) => (editing.sessionWaitLimitMin = num(v, 30))"
               />
             </div>
             <div class="ol-form-row">

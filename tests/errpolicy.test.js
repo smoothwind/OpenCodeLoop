@@ -70,6 +70,37 @@ describe('classifyError（错误分类）', () => {
     expect(classifyError('鉴权失败：密钥无效', NOW).kind).toBe('auth')
   })
 
+  it('GLM 5 小时窗口额度：仅文案（无业务码）也能识别并解析恢复时间', () => {
+    const r = classifyError(
+      '已达到 5 小时的使用上限。您的限额将在 2026-10-25 18:48:03 重置。',
+      NOW
+    )
+    expect(r.kind).toBe('quota')
+    expect(r.resetAt).toBe(new Date(2026, 9, 25, 18, 48, 3).getTime())
+  })
+
+  it('供应商 rate-limit 原始事件（provider.rate-limit + 1308）→ quota 而非 unknown', () => {
+    const message = '已达到 5 小时的使用上限。您的限额将在 2026-10-25 18:48:03 重置。'
+    const raw = JSON.stringify({
+      type: 'error',
+      timestamp: 1792922353847,
+      sessionID: 'ses_ea147f3edffdInxJ4GTwJkuNe7',
+      error: {
+        type: 'provider.rate-limit',
+        message,
+        status: 429,
+        response: { body: JSON.stringify({ error: { code: '1308', message } }) }
+      }
+    })
+    const r = classifyError(raw, NOW)
+    expect(r.kind).toBe('quota')
+    expect(r.resetAt).toBe(new Date(2026, 9, 25, 18, 48, 3).getTime())
+    // 无额度语义的限流文案仍按 ratelimit 处理
+    expect(classifyError('{"error":{"type":"provider.rate-limit","message":"too many requests"}}', NOW).kind).toBe(
+      'ratelimit'
+    )
+  })
+
   it('429 限流无额度语义 → ratelimit，且解析重试等待时间', () => {
     const r = classifyError('HTTP 429 Too Many Requests, please try again in 30s', NOW)
     expect(r.kind).toBe('ratelimit')

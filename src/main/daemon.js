@@ -20,6 +20,7 @@ import { createWriteStream } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { classifyError, planRecovery, KIND_TEXT, formatClock, formatWait } from './errpolicy.js'
+import { waitLimitMs, sessionBusy, busyReason, outcomeText } from './sessiongate.js'
 
 /** 日志文件缓冲写入流：集中管理打开/写/关，替代逐块 appendFile */
 export class LogFileWriter {
@@ -110,6 +111,32 @@ export function isDone(text, keyword = 'DONE') {
 }
 
 /**
+ * 供应商错误体解析：response.body 可能是 JSON 字符串（业务错误再包一层），
+ * 也可能是普通文本。统一返回对象形态 { message? , error? , code? , status? }。
+ */
+function parseErrorBody(body) {
+  if (!body) return null
+  if (typeof body === 'object') return body
+  const s = String(body).trim()
+  if (!s) return null
+  if (!s.startsWith('{') && !s.startsWith('[')) return { message: s }
+  try {
+    const o = JSON.parse(s)
+    return o && typeof o === 'object' ? o : { message: s }
+  } catch {
+    return { message: s }
+  }
+}
+
+/** 首个非空字符串候选：错误文案可能散落在 error.message / error.data.message / response.body 中 */
+function firstText(...vals) {
+  for (const v of vals) {
+    if (typeof v === 'string' && v.trim()) return v.trim()
+  }
+  return ''
+}
+
+/**
  * 解析 opencode run --format json 的事件行 → 语义化交互条目（纯函数，可单测）。
  * 识别：AI 文本 / 工具调用 / 错误；返回对象带 sessionId（事件流中捕获实际会话）。
  * step-start、reasoning 等内部事件返回 { skip: true, sessionId }（不展示但用于会话检测）。
@@ -155,19 +182,48 @@ export function parseRunEvent(line) {
       return { level: 'info', title: `[工具] ${name}${st}`, detail: input || undefined, sessionId }
     }
     case 'error': {
-      // opencode run --format json 的错误事件：
-      // { type:'error', error:{ name, data:{ message, statusCode, isRetryable } } }
+      // opencode run --format json 的错误事件（两种形态）：
+      // 1) { type:'error', error:{ name, data:{ message, statusCode } } }
+      // 2) { type:'error', error:{ type:'provider.rate-limit', message, status, response:{ body } } }
+      // 供应商常把真正的业务错误（如 GLM 1308）再编码进 response.body 字符串，需要解开才能读出文案/业务码
       const err = e.error && typeof e.error === 'object' ? e.error : {}
       const data = err.data && typeof err.data === 'object' ? err.data : {}
-      const msg = String(e.message || part.message || data.message || err.name || part.error || '未知错误')
-      const code = Number(data.statusCode || e.statusCode) || 0
-      const codeTag = code ? `（HTTP ${code}）` : ''
+      const body = parseErrorBody(err.response?.body ?? e.response?.body)
+      const bodyErr = body?.error && typeof body.error === 'object' ? body.error : body || {}
+      const msg =
+        firstText(
+          err.message,
+          data.message,
+          bodyErr.message,
+          body?.message,
+          e.message,
+          part.message,
+          typeof e.error === 'string' ? e.error : '',
+          err.name,
+          part.error
+        ) || '未知错误'
+      // HTTP 状态与供应商业务码（如 1308）分开：业务码不能当 HTTP 状态展示
+      const httpStatus =
+        Number(
+          err.status ||
+            err.statusCode ||
+            data.statusCode ||
+            bodyErr.status ||
+            body?.status ||
+            e.statusCode
+        ) || 0
+      const bizCode = firstText(
+        bodyErr.code != null ? String(bodyErr.code) : '',
+        err.code != null ? String(err.code) : ''
+      )
+      const tags = [httpStatus ? `HTTP ${httpStatus}` : '', bizCode ? `错误码 ${bizCode}` : ''].filter(Boolean)
       return {
         level: 'error',
-        title: `[错误] ${msg.slice(0, 180)}${codeTag}`,
+        title: `[错误] ${msg.slice(0, 180)}${tags.length ? `（${tags.join('，')}）` : ''}`,
         detail: t.slice(0, 4000),
         sessionId,
-        errorText: `${msg}${code ? ` statusCode=${code}` : ''}`
+        // 原始事件全文纳入分类：业务码（1308）、HTTP 状态、type（provider.rate-limit）与恢复时间都在其中
+        errorText: t.slice(0, 4000)
       }
     }
     default:
@@ -197,6 +253,8 @@ export function initialState() {
     waitReason: '',
     /** 本轮错误分类（quota/auth/ratelimit/server/network/unknown） */
     errorKind: '',
+    /** 等待目标会话空闲的起始时间（epoch ms；null = 未处于会话等待） */
+    sessionWaitStartedAt: null,
     pid: null,
     /** 本轮实际使用的模型（配置解析值，轮启动设置） */
     model: '',
@@ -215,8 +273,22 @@ export class Daemon extends EventEmitter {
     this.resolveModel = typeof opts.resolveModel === 'function' ? opts.resolveModel : null
     /** 可选：托管服务端口冲突修复器 (port) => Promise<{ok, pid?}> */
     this.repairConflict = typeof opts.repairConflict === 'function' ? opts.repairConflict : null
+    /** 会话闸门（均由主进程注入；缺失时保持旧行为：直接发送） */
+    this.resolveSession = typeof opts.resolveSession === 'function' ? opts.resolveSession : null
+    this.probeSession = typeof opts.probeSession === 'function' ? opts.probeSession : null
+    this.waitSessionIdle = typeof opts.waitSessionIdle === 'function' ? opts.waitSessionIdle : null
+    this.interruptSession = typeof opts.interruptSession === 'function' ? opts.interruptSession : null
+    this.acquireSession = typeof opts.acquireSession === 'function' ? opts.acquireSession : null
+    this.releaseSession = typeof opts.releaseSession === 'function' ? opts.releaseSession : null
     /** 错误策略：等待恢复的上限（防错误文案解析偏差导致无限长等） */
     this.policyMaxWaitMs = Number.isFinite(opts.policyMaxWaitMs) ? opts.policyMaxWaitMs : 24 * 3600 * 1000
+    /** 已持有租约/本轮使用的会话（停止时据此中断服务器端执行） */
+    this._leasedSession = ''
+    this._roundSession = ''
+    this._gateAbort = null
+    this._gateWarned = false
+    /** 会话等待期点击“立即重启”：仅重新探测，不结束守护 */
+    this._gateRestart = false
     this._svcFixes = 0
     this._svcPort = null
     this.state = initialState()
@@ -290,11 +362,18 @@ export class Daemon extends EventEmitter {
     this._nextLabel = ''
     this._svcFixes = 0
     this._svcPort = null
+    this._abortGate()
+    this._releaseSessionLease()
+    this._roundSession = ''
+    this._gateWarned = false
+    this._gateRestart = false
     this.cfg = cfg
       this.bin = bin
       this.caps = caps
       this.state = initialState()
       this.state.startedAt = Date.now()
+      // 启动即视为运行中（会话闸门可能随后切换为 waiting）
+      this.state.status = 'running'
       this.logFile = cfg.logFile || join(cfg.project, 'keep-alive.log')
       try {
         await mkdir(dirname(this.logFile), { recursive: true })
@@ -314,31 +393,53 @@ export class Daemon extends EventEmitter {
   stop(reason = '已手动停止') {
     if (!this.busy && this.state.status !== 'running') {
       this.stopRequested = true
+      this._abortGate()
+      this._releaseSessionLease()
       return
     }
+    // 本轮由守护发起且仍在执行：停 CLI 后同步中断服务器端 agent loop，
+    // 否则 kill 子进程只断开客户端，服务器仍会继续跑并在下一轮与 TUI 冲突。
+    const interruptSid =
+      this.state.status === 'running'
+        ? this._roundSession ||
+          this.state.sessionId ||
+          (this.cfg?.sessionMode === 'id' ? this.cfg.sessionId : '')
+        : ''
     this._gen++
     this.stopRequested = true
+    this._abortGate()
     this._clearTimer()
+    this._releaseSessionLease()
     this._kill(reason)
     this.state.status = 'stopped'
     this.state.nextRestartAt = null
     this.state.waitReason = ''
+    this.state.sessionWaitStartedAt = null
     this.state.pid = null
     this.log('info', reason)
     this.emitState()
     this.logWriter.close()
+    if (interruptSid) this._interruptServerSession(interruptSid)
   }
 
   /** 立即重启：等待期直接唤醒；运行中则终止当前轮跳过延时 */
   restartNow() {
     if (!this.busy) return
     if (this.state.status === 'waiting') {
+      // 会话闸门等待：只唤醒重新探测（TUI 仍在跑时继续等待），不结束守护
+      this._gateRestart = !!this.state.sessionWaitStartedAt
+      this._abortGate()
       this._wake?.()
-    } else {
-      this.skipDelay = true
-      this.log('info', '请求立即重启，终止当前轮')
-      this._kill('当前轮已终止（立即重启）')
+      return
     }
+    const sid =
+      this._roundSession ||
+      this.state.sessionId ||
+      (this.cfg?.sessionMode === 'id' ? this.cfg.sessionId : '')
+    this.skipDelay = true
+    this.log('info', '请求立即重启，终止当前轮')
+    this._kill('当前轮已终止（立即重启）')
+    if (sid) this._interruptServerSession(sid)
   }
 
   _clearTimer() {
@@ -364,6 +465,176 @@ export class Daemon extends EventEmitter {
         resolve()
       }
     })
+  }
+
+  // ---------- 会话闸门：发送前等待目标会话空闲 ----------
+
+  _abortGate() {
+    const c = this._gateAbort
+    this._gateAbort = null
+    if (c) c.abort()
+  }
+
+  _releaseSessionLease() {
+    const sid = this._leasedSession
+    this._leasedSession = ''
+    if (!sid || !this.releaseSession) return
+    try {
+      this.releaseSession(sid)
+    } catch {
+      /* 释放失败不影响主流程 */
+    }
+  }
+
+  /** 停止/重启时中断服务器端执行：kill CLI 只断开客户端，服务器回合仍会继续 */
+  _interruptServerSession(sessionId) {
+    this._roundSession = ''
+    if (!sessionId || !this.interruptSession) return
+    Promise.resolve()
+      .then(() => this.interruptSession(sessionId))
+      .then((r) => {
+        if (r?.ok) this.log('info', r.interrupted ? '已中断服务器端会话执行' : '服务器端执行已结束（无需中断）')
+        else this.log('warn', `中断服务器端执行失败：${r?.error || '未知原因'}`)
+      })
+      .catch((err) => this.log('warn', `中断服务器端执行失败：${String(err?.message || err)}`))
+  }
+
+  async _resolveTargetSession() {
+    if (this.resolveSession) {
+      try {
+        return String((await this.resolveSession(this.cfg)) || '')
+      } catch {
+        return ''
+      }
+    }
+    return this.cfg?.sessionMode === 'id' ? String(this.cfg.sessionId || '') : ''
+  }
+
+  _setSessionWait(reason, startedAt) {
+    const changed =
+      this.state.status !== 'waiting' ||
+      this.state.waitReason !== reason ||
+      !this.state.sessionWaitStartedAt
+    this.state.status = 'waiting'
+    this.state.waitReason = reason
+    this.state.nextRestartAt = null
+    this.state.sessionWaitStartedAt = this.state.sessionWaitStartedAt || startedAt
+    if (changed) this.emitState()
+  }
+
+  _clearSessionWait() {
+    if (!this.state.sessionWaitStartedAt && this.state.status !== 'waiting') return
+    this.state.sessionWaitStartedAt = null
+    this.state.waitReason = ''
+    this.emitState()
+  }
+
+  /**
+   * 发送前闸门：目标会话运行中 / 有排队消息时等待空闲。
+   * 返回 { ok, sessionId }；ok=true 表示已拿到会话租约、可以 spawn。
+   * 等待上限取任务配置 sessionWaitLimitMin（分钟，0=不限，默认 30）。
+   */
+  async _sessionGate(gen) {
+    const sid = await this._resolveTargetSession()
+    if (!sid || !this.probeSession) return { ok: true, sessionId: sid }
+
+    const limit = waitLimitMs(this.cfg)
+    const startedAt = Date.now()
+    const deadline = limit > 0 ? startedAt + limit : 0
+    let announced = ''
+    let lastInbox = -1
+    let lastHeartbeat = Date.now()
+    let leaseTimeoutWarned = false
+
+    while (gen === this._gen && !this.stopRequested) {
+      this._gateRestart = false
+      this._gateAbort = new AbortController()
+      // 1) 进程内租约：同一会话同时只允许一个守护发送
+      const lease = this.acquireSession ? await this.acquireSession(sid) : { ok: true }
+      if (!lease.ok) {
+        this._leasedSession = ''
+        const owner = lease.ownerName || lease.owner || '其他任务'
+        const reason = `会话正被任务「${owner}」占用，等待其结束`
+        this._setSessionWait(reason, startedAt)
+        if (announced !== reason) {
+          this.log('warn', `${reason}（同一会话不建议配置多个守护任务）`)
+          announced = reason
+        }
+        if (deadline && !leaseTimeoutWarned && Date.now() >= deadline) {
+          leaseTimeoutWarned = true
+          this.log('warn', `等待已超过上限（${formatWait(limit)}），但会话仍被任务「${owner}」占用；为避免并发投递继续等待`)
+        }
+        await this._sleep(5000)
+        continue
+      }
+      this._leasedSession = sid
+
+      // 2) 服务端状态：/api/session/active 才是权威的“正在执行”标记
+      const probe = await this.probeSession(sid).catch((err) => ({ ok: false, error: String(err?.message || err) }))
+      if (gen !== this._gen || this.stopRequested) return { ok: false }
+
+      if (!probe.ok) {
+        // API 不可用（旧版本/服务未启动）：退回旧行为，避免把守护永久卡死
+        if (!this._gateWarned) {
+          this._gateWarned = true
+          this.log('warn', `无法读取会话 ${sid} 的状态（${probe.error || 'API 不可用'}），跳过等待直接发送`)
+        }
+        this._clearSessionWait()
+        return { ok: true, sessionId: sid }
+      }
+
+      if (!sessionBusy(probe)) {
+        if (announced) this.log('info', `会话 ${sid} 已空闲（上次结果：${outcomeText(probe.outcome)}），开始发送本轮提示词`)
+        this._clearSessionWait()
+        return { ok: true, sessionId: sid }
+      }
+
+      // 3) 忙：更新等待状态并输出原因（运行中 / 排队消息条数）
+      const reason = busyReason(probe)
+      this._setSessionWait(reason, startedAt)
+      if (announced !== reason) {
+        const limitText = limit > 0 ? `最多等待 ${formatWait(limit)}` : '不设等待上限'
+        this.log('warn', `${reason}，本轮暂不发送提示词（${limitText}；可在任务的“会话等待上限”调整）`)
+        announced = reason
+      }
+      const inbox = Number(probe.inbox) || 0
+      if (inbox !== lastInbox) {
+        if (lastInbox >= 0) this.log('info', `会话排队消息变化：${lastInbox} → ${inbox} 条`)
+        lastInbox = inbox
+      }
+      if (Date.now() - lastHeartbeat >= 5 * 60 * 1000) {
+        lastHeartbeat = Date.now()
+        this.log('info', `仍在等待会话空闲（已等待 ${formatWait(Date.now() - startedAt)}；${reason}）`)
+      }
+
+      // 4) 等待上限：只对“会话忙”生效；被其他任务持租约时继续等待以保证单写者
+      if (deadline && Date.now() >= deadline) {
+        this.log('warn', `等待会话空闲已超过上限（${formatWait(limit)}），按配置继续发送；目标会话可能仍在运行`)
+        this._clearSessionWait()
+        return { ok: true, sessionId: sid }
+      }
+
+      const remaining = deadline ? deadline - Date.now() : 0
+      const timeoutMs = deadline ? Math.max(1000, Math.min(30000, remaining)) : 30000
+      if (this.waitSessionIdle) {
+        const r = await this.waitSessionIdle(sid, { timeoutMs, signal: this._gateAbort?.signal })
+        if (gen !== this._gen || this.stopRequested) return { ok: false }
+        if (r?.aborted) {
+          // “立即重启”只唤醒重新探测；停止才结束等待
+          if (this._gateRestart && !this.stopRequested && gen === this._gen) continue
+          return { ok: false }
+        }
+        if (r && !r.ok && r.status === 503 && !this._gateWarned) {
+          this._gateWarned = true
+          this.log('warn', '会话等待接口不可用（503），改为轮询会话状态')
+        }
+        // 接口立即返回时避免忙轮询；_sleep 可被停止操作立即唤醒
+        await this._sleep(r?.ok ? 500 : 5000)
+      } else {
+        await this._sleep(5000)
+      }
+    }
+    return { ok: false }
   }
 
   /** 检测输出中的 opencode 托管服务端口冲突（45278 被僵死服务占用） */
@@ -392,8 +663,22 @@ export class Daemon extends EventEmitter {
   }
 
   async _loop(gen) {
+    try {
+      await this._loopRounds(gen)
+    } finally {
+      this._releaseSessionLease()
+      this._abortGate()
+      this._roundSession = ''
+    }
+  }
+
+  async _loopRounds(gen) {
     while (gen === this._gen && !this.stopRequested && !this.doneHit) {
+      // 发送前会话闸门：TUI/其他客户端正在运行时先等待空闲，避免 opencode run 以 steer 插话
+      const gate = await this._sessionGate(gen)
+      if (!gate.ok || gen !== this._gen || this.stopRequested) return
       const code = await this._runOnce(gen)
+      this._releaseSessionLease()
       if (gen !== this._gen) return
       if (this.stopRequested) return
 
@@ -550,6 +835,10 @@ export class Daemon extends EventEmitter {
       this.state.model = this._roundModel || ''
       this._errBuf = ''
       this.state.waitReason = ''
+      this.state.sessionWaitStartedAt = null
+      // 本轮会话：停止时据此中断服务器端执行
+      this._roundSession =
+        this._leasedSession || (this.cfg?.sessionMode === 'id' ? String(this.cfg.sessionId || '') : '')
       const modelTag = this._roundModel ? ` · 模型 ${this._roundModel}` : ''
       const kind = this._nextLabel || '首轮'
       this._nextLabel = ''

@@ -37,6 +37,8 @@ export function taskDefaults() {
     fallbackModels: [],
     retryDelay: 120,
     maxRestarts: 0,
+    /** 发送前等待目标会话空闲的上限（分钟，0 = 不限；默认 30） */
+    sessionWaitLimitMin: 30,
     prompt:
       '读取 .progress.md，继续完成未完成的任务。全部完成后输出 DONE。请自主规划、执行、验证、迭代、反思，不得访问项目目录外的系统文件，不要中途请求确认或等待授权，失败就自己诊断修正并继续，直到任务通过验证。修改完自动提交，不要推送代码。',
     doneKeyword: 'DONE',

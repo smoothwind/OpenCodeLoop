@@ -23,10 +23,14 @@ import {
   apiHistorySessions,
   apiSessionsForDir,
   sessionModelById,
-  deleteSession
+  deleteSession,
+  probeSession,
+  waitSessionIdle,
+  interruptSession
 } from './opencode.js'
 import { detectEnvironment } from './envdetect.js'
 import { restartAttach, repairServiceConflict } from './attachctl.js'
+import { SessionLease } from './sessiongate.js'
 
 const APP_ICON = join(__dirname, '../../resources/icon.png')
 const TRAY_ICON = join(__dirname, '../../resources/tray.png')
@@ -41,6 +45,8 @@ let forceQuit = false
 
 /** taskId → Daemon（惰性创建） */
 const daemons = new Map()
+/** 会话租约：同一 opencode 会话同时只允许一个守护发送提示词 */
+const sessionLease = new SessionLease()
 
 // ---------- 便携模式：配置/日志保存在安装目录（exe 同级 data/，只读时回退 userData） ----------
 
@@ -144,7 +150,24 @@ function daemonFor(taskId) {
         return sessionModelById(sessionId, task.project, resolvedBin)
       },
       // 托管服务端口冲突自动修复（僵死 opencode 服务）
-      repairConflict: (port) => repairServiceConflict(port)
+      repairConflict: (port) => repairServiceConflict(port),
+      // 发送前会话闸门：解析 -c 目标会话 → 探测运行/排队 → 等待空闲（默认 30 分钟上限）
+      resolveSession: async (cfg) => {
+        if (cfg?.sessionMode === 'id' && cfg.sessionId) return cfg.sessionId
+        if (cfg?.sessionMode === 'new') return ''
+        // -c（last / 指定会话但未填 ID）：取项目下最近更新的会话，与 CLI 的续写目标一致
+        const r = await apiSessionsForDir(cfg?.project || '')
+        return r.ok ? r.rows?.[0]?.id || '' : ''
+      },
+      probeSession: (sessionId) => probeSession(sessionId),
+      waitSessionIdle: (sessionId, opts) => waitSessionIdle(sessionId, opts),
+      interruptSession: (sessionId) => interruptSession(sessionId),
+      acquireSession: (sessionId) => {
+        const r = sessionLease.acquire(sessionId, taskId)
+        if (r.ok) return r
+        return { ...r, ownerName: taskById(r.owner)?.name || r.owner }
+      },
+      releaseSession: (sessionId) => sessionLease.release(sessionId, taskId)
     })
     d.on('log', (entry) => onDaemonLog(taskId, entry))
     d.on('state', (st) => onDaemonState(taskId, st))

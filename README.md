@@ -10,9 +10,32 @@ OpenCodeLoop 是 [OpenCode](https://opencode.ai) 的桌面伴生工具（Electro
 
 - **任务卡片 / 列表**：同时守护多个项目，逐任务启停、立即重启、查看轮数 / 退出码 / 本轮时长 / 实际模型
 - **会话策略**：最近会话（`-c` 续写）/ 指定会话（`-s`）/ 每轮新会话
+- **会话闸门**：每轮发送前通过 opencode 本地 API 检测目标会话是否正在运行（TUI / 桌面端）或仍有排队消息；忙碌时等待空闲再发送（默认最多 30 分钟，可配置），避免 `opencode run` 以 steer 方式插入正在执行的回合
+- **停止即中断**：停止守护 / 立即重启时调用 opencode 的 interrupt 接口结束服务器端 agent loop，而不是只杀掉本地 CLI 进程
 - **模型链**：主力模型 + 可选模型列表，主力连续失败后按序顺延，恢复后自动回到主力
 - **迭代模式**：每轮完成后自动开始下一轮（可设总轮数上限），适合「持续改进直到满意」的场景
 - **完成标记**：输出中出现关键字（默认 `DONE`）即判定完成；等子进程自然退出，保证 git commit 等收尾动作执行完
+
+### 会话闸门与并发安全
+
+`opencode run --session <id>` 在 v2 中以 **steer** 方式投递消息：目标会话如果正在 TUI / 桌面端执行，守护提示词会插入正在运行的回合，造成互相干扰。守护在每轮发送前会先做一次「会话闸门」检查：
+
+1. 解析本轮目标会话：`-s` 指定会话；`-c` 取项目下最近更新的会话
+2. 通过 opencode 本地 API（`~/.local/state/opencode/service.json` 凭据）检查：
+   - `GET /api/session/active`：会话是否正在执行（权威状态；`outcome` / `time.idle` 在运行期间仍是上一次的旧值，不能单独用于判断）
+   - `GET /api/session/{id}/inbox`：是否仍有排队消息（有排队也视为忙）
+3. 忙碌时进入 `waiting` 状态，用 `POST /api/experimental/session/{id}/wait` 长轮询等待空闲；接口不可用时退化为轮询 `/active`
+4. 空闲后读取上次执行结果（成功 / 失败 / 中断）并写入日志，然后才 spawn `opencode run`
+5. 等待超过任务的「会话等待上限」（默认 30 分钟，0 = 不限）后，记录告警并按配置继续发送
+
+其他保护：
+
+- **单会话租约**：进程内同一会话同时只允许一个守护发送，避免多个任务共用同一会话时并发投递
+- **停止即中断**：停止 / 立即重启时调用 `POST /api/session/{id}/interrupt` 结束服务器端执行；只 kill CLI 不会终止服务器端 agent loop
+- **降级**：`service.json` 或 API 不可用时记录一次警告并退回旧行为（直接发送），避免守护被卡死
+- 等待原因、排队条数、5 分钟心跳与超时都会写入应用内日志；界面显示「等待空闲 X 分 Y 秒」
+
+> 若 TUI 使用 `--standalone` 或连接了另一个独立 opencode 服务，闸门无法看到该服务上的会话状态；默认 TUI 与守护共用同一个托管服务，不受影响。
 
 ### 错误分级处理
 
@@ -27,7 +50,7 @@ OpenCodeLoop 是 [OpenCode](https://opencode.ai) 的桌面伴生工具（Electro
 | 网络异常 | 连接重置 / 超时 / DNS 失败 | 常规间隔重启 |
 | 端口冲突 | opencode 托管服务端口被僵死进程占用 | 自动结束僵死进程后立即重试（最多 3 次） |
 
-恢复等待上限 24 小时（防错误文案解析偏差导致无限等待）；停止的任务不再计时，日志面板按任务/项目过滤消息。
+恢复等待上限 24 小时（防错误文案解析偏差导致无限等待）；会话闸门等待上限默认 30 分钟，可按任务调整（0 = 不限）。停止的任务不再计时，日志面板按任务/项目过滤消息。
 
 ### 会话与项目治理
 
@@ -61,7 +84,7 @@ OpenCodeLoop 是 [OpenCode](https://opencode.ai) 的桌面伴生工具（Electro
 ```powershell
 npm install       # 安装依赖
 npm run dev       # 开发模式（electron-vite dev）
-npm run test      # vitest 单元测试（90 例）
+npm run test      # vitest 单元测试（106 例）
 npm run dist      # 打包 Windows 安装包
 ```
 
@@ -75,6 +98,7 @@ npm run dist      # 打包 Windows 安装包
 | 会话策略 | `last` 每轮 `-c` 续最近会话；`id` 固定 `-s`；`new` 每轮新会话 |
 | 主力/可选模型 | `provider/model` 格式；不配置则用会话默认模型 |
 | 重启间隔 / 上限 | 失败后等待秒数；上限 0 = 无限重启 |
+| 会话等待上限 | 目标会话运行中 / 有排队消息时最多等待的分钟数（0 = 不限，默认 30）；超时后继续发送并告警 |
 | 提示词 | 每轮传给 opencode 的指令，支持 `{{project}}` 等变量 |
 | 完成标记 | 输出中出现该字样即本轮完成（默认 `DONE`） |
 | 完成后 | 停止守护，或自动下一轮（迭代模式 + 总轮数上限） |
@@ -87,6 +111,7 @@ src/
   main/            # Electron 主进程
     index.js       # 窗口/托盘/菜单/IPC/DaemonManager
     daemon.js      # 守护引擎（状态机：stopped→running⇄waiting→done|error）
+    sessiongate.js # 会话闸门与会话租约（纯函数：运行/排队检测、等待上限）
     errpolicy.js   # 错误分类与分级恢复策略（纯函数）
     opencode.js    # opencode CLI / 本地 API / 项目配置桥接
     store.js       # 配置持久化（原子写盘，v1→v2 迁移）
