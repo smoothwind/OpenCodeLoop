@@ -4,6 +4,10 @@ OpenCode 无人值守守护管理台 — 让 `opencode run` 像守护进程一�
 
 OpenCodeLoop 是 [OpenCode](https://opencode.ai) 的桌面伴生工具（Electron + Vue 3）：为每个项目配置一条提示词，守护进程循环拉起 `opencode run`，退出即按间隔重启，直到输出中出现完成标记（默认 `DONE`）才停。前身是单任务脚本 `keep-alive.ps1`，现已进程化为多任务管理台。
 
+[![Release](https://github.com/smoothwind/OpenCodeLoop/actions/workflows/release.yml/badge.svg)](https://github.com/smoothwind/OpenCodeLoop/actions/workflows/release.yml)
+[![Pages](https://github.com/smoothwind/OpenCodeLoop/actions/workflows/pages.yml/badge.svg)](https://github.com/smoothwind/OpenCodeLoop/actions/workflows/pages.yml)
+[![GitHub release](https://img.shields.io/github/v/release/smoothwind/OpenCodeLoop)](https://github.com/smoothwind/OpenCodeLoop/releases)
+
 ## 功能特性
 
 ### 多任务守护
@@ -78,7 +82,7 @@ OpenCodeLoop 是 [OpenCode](https://opencode.ai) 的桌面伴生工具（Electro
 
 ### 安装使用（推荐）
 
-从 `dist/OpenCodeLoop-Setup-0.1.2.exe` 安装（NSIS，可选安装目录，创建桌面快捷方式）。
+从 `dist/OpenCodeLoop-Setup-0.1.2.exe` 安装（NSIS，可选安装目录，创建桌面快捷方式）；或从 [GitHub Releases](https://github.com/smoothwind/OpenCodeLoop/releases/latest) 下载最新版本。
 
 前置要求：本机已安装 `opencode` CLI（PATH 可见，或在设置中指定完整路径）。
 
@@ -130,6 +134,9 @@ src/
   renderer/src/    # Vue 3 渲染层（任务/会话/权限/提示词/设置五视图）
 tests/             # vitest 单元测试
 scripts/           # dist-win.mjs 打包 / UxKit 别名与同步
+site/              # GitHub Pages 落地页（静态站点）
+vendor/uxkit/      # 内置 UxKit（CI 构建用，npm run sync-ux 生成）
+.github/workflows/ # CI：Release（构建+发布）/ Pages（站点部署）
 ```
 
 ## 打包说明
@@ -139,6 +146,50 @@ scripts/           # dist-win.mjs 打包 / UxKit 别名与同步
 1. 规避 Vite 在含空格共享名（如 `\\vmware-host\Shared Folders`）上的 `net use` 路径误映射
 2. `node_modules/electron/dist` 缺失时回退 `%LOCALAPPDATA%\electron\Cache` 的运行时 zip
 3. 项目在网络盘时产物先落本地临时目录，完成后回拷 `dist/`（文件名空格转连字符）
+
+安装包统一命名为 `OpenCodeLoop-Setup-<version>.exe`（`electron-builder.yml` 的 `artifactName`），与 Release 资产和更新检查保持一致。
+
+## 自动构建与发布
+
+仓库内置两条 GitHub Actions 工作流：
+
+| 工作流 | 触发条件 | 作用 |
+|---|---|---|
+| `Release` | 推送 `v*` tag / 手动运行 | Windows 上执行 `npm ci` → `npm test` → `npm run dist`；tag 构建自动创建 GitHub Release 并上传安装包、blockmap、`latest.yml`；手动运行只上传构建产物（artifact） |
+| `Deploy Pages` | 推送 `site/**` 或手动运行 | 将 `site/` 发布到 GitHub Pages |
+
+### 发布新版本
+
+1. 升级版本号并更新 README 中的安装包文件名：
+   ```powershell
+   npm version patch --no-git-tag-version
+   ```
+2. 提交并推送
+3. 打 tag 并推送：
+   ```powershell
+   git tag v0.1.2
+   git push origin v0.1.2
+   ```
+
+工作流会先校验 tag 与 `package.json` 版本一致，再构建并发布。发布产物包括 `OpenCodeLoop-Setup-<version>.exe`、`*.exe.blockmap`、`latest.yml`。
+
+### GitHub Pages
+
+首次使用需在仓库 **Settings → Pages → Source** 选择 **GitHub Actions**（私有仓库需所在计划支持 Pages）。
+
+站点地址：`https://smoothwind.github.io/OpenCodeLoop/`。页面仅依赖静态文件，版本号与下载链接会在浏览器端从 GitHub Releases API 自动更新。
+
+### 更新源与发布仓库
+
+应用内更新检测读取打包生成的 `app-update.yml`（`publish` 配置见 `electron-builder.yml`），查询 GitHub Releases 最新版本。**发布仓库需要公开**（私有仓库的未认证 API 查询会返回 404）；否则应用会提示「更新源还没有发布版本」或检查失败。更新检测只提醒，不自动下载。
+
+### CI 与 UxKit
+
+渲染层通过 `@ux/*` 别名引用 UxKit：本地优先 `../UX-FRW/packages`，否则回退 `vendor/uxkit`。`vendor/uxkit` 已随仓库提交，CI 不依赖外部目录。更新组件库后执行：
+
+```powershell
+npm run sync-ux
+```
 
 ## 数据与日志位置
 
