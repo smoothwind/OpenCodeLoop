@@ -1,0 +1,92 @@
+/**
+ * UxKit 布局/尺寸/层级令牌（不随主题翻转，仅一套）
+ *
+ * 尺寸来源：PersonalDb 与 MdReader 两项目实测值的并集（消除魔法数）。
+ * 圆角单一来源派生（shadcn 约定）：改 --ux-radius 即可整体调整圆角风格。
+ * z 阶梯：新增浮层层级必须在此登记，禁止内联 z-index 数字（CI 强制）。
+ */
+:root {
+  /* 字号（收编两项目散落的 11~18px 六档） */
+  --ux-fs-xs: 11px;
+  --ux-fs-sm: 12px;
+  --ux-fs-md: 12.5px;
+  --ux-fs-lg: 13px;
+  --ux-fs-xl: 14px;
+  --ux-fs-display: 18px;
+  --ux-fs-icon: 34px;
+  --ux-fs-icon-sm: 26px;
+
+  /* 行高 */
+  --ux-lh-tight: 1.3;
+  --ux-lh-normal: 1.5;
+  --ux-lh-relaxed: 1.7;
+
+  /* 字重 */
+  --ux-fw-normal: 400;
+  --ux-fw-medium: 500;
+  --ux-fw-semibold: 600;
+
+  /* 间距：4px 网格（Fluent 约定） */
+  --ux-sp-1: 4px;
+  --ux-sp-2: 8px;
+  --ux-sp-3: 12px;
+  --ux-sp-4: 16px;
+  --ux-sp-5: 20px;
+  --ux-sp-6: 24px;
+
+  /* 圆角：单一来源派生 */
+  --ux-radius: 6px;
+  --ux-radius-sm: calc(var(--ux-radius) * 0.66);
+  --ux-radius-lg: calc(var(--ux-radius) * 1.33);
+  --ux-radius-full: 9999px;
+
+  /* 窗体结构（frameless 工作台，PDB 实测值） */
+  --ux-titlebar-h: 32px;
+  --ux-menubar-h: 26px;
+  --ux-toolbar-h: 42px;
+  --ux-statusbar-h: 26px;
+  --ux-activitybar-w: 48px;
+  --ux-splitter-w: 4px;
+  --ux-splitter-hit: 6px;
+  --ux-panel-header-h: 28px;
+  --ux-panel-min-w: 200px;
+  --ux-panel-max-w: 560px;
+  --ux-panel-min-h: 120px;
+  --ux-panel-max-h: 480px;
+
+  /* 控件尺寸 */
+  --ux-control-h-sm: 24px;
+  --ux-control-h-md: 28px;
+  --ux-control-h-lg: 32px;
+
+  /* z-index 语义阶梯（MdReader 阶梯原样采纳） */
+  --ux-z-local: 20;        /* 组件内部局部堆叠 */
+  --ux-z-dock: 900;        /* 停靠面板/悬浮窗口 */
+  --ux-z-pop: 960;         /* 普通浮层（popover/tooltip） */
+  --ux-z-top: 999;         /* 顶层普通浮层 */
+  --ux-z-modal: 2000;      /* 模态对话框 */
+  --ux-z-menu: 2100;       /* 菜单/右键菜单（须高于对话框） */
+  --ux-z-dropdown: 2200;   /* 下拉（须高于菜单） */
+  --ux-z-tour: 2600;       /* 漫游引导聚光层 */
+  --ux-z-toast: 2700;      /* 通知（最高，不被引导遮罩盖住） */
+
+  /* 动效 */
+  --ux-dur-fast: 120ms;
+  --ux-dur-normal: 160ms;
+  --ux-dur-slow: 240ms;
+  --ux-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* 焦点环宽度 */
+  --ux-focus-width: 2px;
+}
+
+/* 用户可调偏好：不参与主题翻转，由 PreferencesService 运行时注入覆盖 */
+:root {
+  --ux-editor-font-size: 14px;
+  --ux-editor-line-height: 1.6;
+  --ux-font-family:
+    "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, -apple-system,
+    sans-serif;
+  --ux-font-family-mono:
+    "Cascadia Code", "JetBrains Mono", Consolas, "Courier New", monospace;
+}

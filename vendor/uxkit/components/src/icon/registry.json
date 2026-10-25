@@ -1,0 +1,282 @@
+{
+  "obj-file": {
+    "category": "obj",
+    "semantic": "文件",
+    "paths": [
+      "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z",
+      "M14 2v4a2 2 0 0 0 2 2h4"
+    ]
+  },
+  "obj-folder": {
+    "category": "obj",
+    "semantic": "文件夹",
+    "paths": [
+      "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
+    ]
+  },
+  "obj-database": {
+    "category": "obj",
+    "semantic": "数据库",
+    "paths": [
+      "M3 5a9 3 0 1 0 18 0a9 3 0 1 0 -18 0",
+      "M3 5v14a9 3 0 0 0 18 0V5",
+      "M3 12a9 3 0 0 0 18 0"
+    ]
+  },
+  "obj-table": {
+    "category": "obj",
+    "semantic": "表格",
+    "paths": [
+      "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z",
+      "M3 9h18",
+      "M3 15h18",
+      "M12 3v18"
+    ]
+  },
+  "obj-key": {
+    "category": "obj",
+    "semantic": "密钥/凭据",
+    "paths": [
+      "M2 15.5a5.5 5.5 0 1 0 11 0a5.5 5.5 0 1 0 -11 0",
+      "m21 2-9.6 9.6",
+      "m15.5 7.5 3 3L22 7l-3-3"
+    ]
+  },
+  "act-plus": {
+    "category": "act",
+    "semantic": "新增",
+    "paths": ["M5 12h14", "M12 5v14"]
+  },
+  "act-minus": {
+    "category": "act",
+    "semantic": "移除/缩出",
+    "paths": ["M5 12h14"]
+  },
+  "act-close": {
+    "category": "act",
+    "semantic": "关闭/清除",
+    "paths": ["M18 6 6 18", "m6 6 12 12"]
+  },
+  "act-delete": {
+    "category": "act",
+    "semantic": "删除",
+    "paths": [
+      "M3 6h18",
+      "M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6",
+      "M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2",
+      "M10 11v6",
+      "M14 11v6"
+    ]
+  },
+  "act-edit": {
+    "category": "act",
+    "semantic": "编辑",
+    "paths": [
+      "M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z",
+      "m15 5 4 4"
+    ]
+  },
+  "act-save": {
+    "category": "act",
+    "semantic": "保存",
+    "paths": [
+      "M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z",
+      "M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7",
+      "M7 3v4a1 1 0 0 0 1 1h7"
+    ]
+  },
+  "act-search": {
+    "category": "act",
+    "semantic": "查找",
+    "paths": ["M3 11a8 8 0 1 0 16 0a8 8 0 1 0 -16 0", "m21 21-4.3-4.3"]
+  },
+  "act-copy": {
+    "category": "act",
+    "semantic": "复制",
+    "paths": [
+      "M10 8h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2z",
+      "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"
+    ]
+  },
+  "act-retry": {
+    "category": "act",
+    "semantic": "重试/刷新",
+    "paths": ["M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8", "M21 3v5h-5"]
+  },
+  "act-check": {
+    "category": "act",
+    "semantic": "确认/完成",
+    "paths": ["M20 6 9 17l-5-5"]
+  },
+  "act-settings": {
+    "category": "act",
+    "semantic": "设置",
+    "paths": [
+      "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z",
+      "M9 12a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"
+    ]
+  },
+  "act-theme-light": {
+    "category": "act",
+    "semantic": "切浅色",
+    "paths": [
+      "M8 12a4 4 0 1 0 8 0a4 4 0 1 0 -8 0",
+      "M12 2v2",
+      "M12 20v2",
+      "M4.93 4.93l1.41 1.41",
+      "M17.66 17.66l1.41 1.41",
+      "M2 12h2",
+      "M20 12h2",
+      "M6.34 17.66l-1.41 1.41",
+      "M19.07 4.93l-1.41 1.41"
+    ]
+  },
+  "act-theme-dark": {
+    "category": "act",
+    "semantic": "切深色",
+    "paths": ["M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"]
+  },
+  "act-chevron-down": {
+    "category": "act",
+    "semantic": "展开/折叠",
+    "paths": ["m6 9 6 6 6-6"]
+  },
+  "act-external-link": {
+    "category": "act",
+    "semantic": "外部打开",
+    "paths": [
+      "M15 3h6v6",
+      "M10 14 21 3",
+      "M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"
+    ]
+  },
+  "act-window-minimize": {
+    "category": "act",
+    "semantic": "窗口最小化",
+    "paths": ["M6 18h12"]
+  },
+  "act-window-maximize": {
+    "category": "act",
+    "semantic": "窗口最大化",
+    "paths": ["M5 5h14v14H5z"]
+  },
+  "act-window-restore": {
+    "category": "act",
+    "semantic": "窗口还原",
+    "paths": [
+      "M13 5h6a2 2 0 0 1 2 2v6",
+      "M5 9h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2z"
+    ]
+  },
+  "act-dock": {
+    "category": "act",
+    "semantic": "面板停靠",
+    "paths": [
+      "M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z",
+      "M9 4v16"
+    ]
+  },
+  "act-float": {
+    "category": "act",
+    "semantic": "面板悬浮",
+    "paths": [
+      "M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z",
+      "M13 8h6v5h-6z"
+    ]
+  },
+  "st-info": {
+    "category": "st",
+    "semantic": "信息",
+    "paths": ["M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0", "M12 16v-4", "M12 8h.01"]
+  },
+  "st-success": {
+    "category": "st",
+    "semantic": "成功",
+    "paths": ["M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0", "m9 12 2 2 4-4"]
+  },
+  "st-warning": {
+    "category": "st",
+    "semantic": "警告",
+    "paths": ["m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z", "M12 9v4", "M12 17h.01"]
+  },
+  "st-error": {
+    "category": "st",
+    "semantic": "错误",
+    "paths": ["M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0", "m15 9-6 6", "m9 9 6 6"]
+  },
+  "act-chevron-right": {
+    "category": "act",
+    "semantic": "展开子菜单",
+    "paths": ["m9 18 6-6-6-6"]
+  },
+  "act-split": {
+    "category": "act",
+    "semantic": "左右分屏",
+    "paths": [
+      "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z",
+      "M12 3v18"
+    ]
+  },
+  "act-split-stack": {
+    "category": "act",
+    "semantic": "上下分屏",
+    "paths": [
+      "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z",
+      "M3 12h18"
+    ]
+  },
+  "act-unsplit": {
+    "category": "act",
+    "semantic": "退出分屏",
+    "paths": ["M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"]
+  },
+  "act-tab-list": {
+    "category": "act",
+    "semantic": "页签列表",
+    "paths": ["M8 6h13", "M8 12h13", "M8 18h13", "M3 6h.01", "M3 12h.01", "M3 18h.01"]
+  },
+  "obj-folder-tree": {
+    "category": "obj",
+    "semantic": "文件树",
+    "paths": [
+      "M20 10a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-2.5a1 1 0 0 1-.8-.4l-.9-1.2A1 1 0 0 0 15 3h-2a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1Z",
+      "M20 20a1 1 0 0 0 1-1v-3a1 1 0 0 0-1-1h-2.5a1 1 0 0 1-.8-.4l-.9-1.2A1 1 0 0 0 15 13h-2a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1Z",
+      "M3 5a2 2 0 0 0 2 2h3",
+      "M3 3v13a2 2 0 0 0 2 2h3"
+    ]
+  },
+  "act-open-file": {
+    "category": "act",
+    "semantic": "打开文件",
+    "paths": [
+      "M6 14l1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"
+    ]
+  },
+  "act-file-plus": {
+    "category": "act",
+    "semantic": "新建文件",
+    "paths": [
+      "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z",
+      "M14 2v4a2 2 0 0 0 2 2h4",
+      "M9 15h6",
+      "M12 12v6"
+    ]
+  },
+  "act-help": {
+    "category": "act",
+    "semantic": "帮助",
+    "paths": ["M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0", "M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3", "M12 17h.01"]
+  },
+  "act-mindmap": {
+    "category": "act",
+    "semantic": "脑图",
+    "paths": [
+      "M12 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4z",
+      "M6 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4z",
+      "M18 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4z",
+      "M12 10v3",
+      "M6 16l6-3",
+      "M18 16l-6-3"
+    ]
+  }
+}

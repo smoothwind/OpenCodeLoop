@@ -1,0 +1,804 @@
+/* UxKit 原子组件样式：全部消费语义令牌，受 check-tokens 约束 */
+
+.ux-icon {
+  width: 1em;
+  height: 1em;
+  flex: none;
+  display: inline-block;
+  vertical-align: -0.125em;
+}
+
+/* ===== UxButton ===== */
+.ux-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ux-sp-1);
+  height: var(--ux-control-h-md);
+  padding: 0 var(--ux-sp-3);
+  font: inherit;
+  font-size: var(--ux-fs-lg);
+  font-weight: var(--ux-fw-medium);
+  border: 1px solid transparent;
+  border-radius: var(--ux-radius-sm);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  transition:
+    background-color var(--ux-dur-fast) var(--ux-ease-out),
+    border-color var(--ux-dur-fast) var(--ux-ease-out),
+    color var(--ux-dur-fast) var(--ux-ease-out);
+}
+
+.ux-btn--sm {
+  height: var(--ux-control-h-sm);
+  padding: 0 var(--ux-sp-2);
+  font-size: var(--ux-fs-sm);
+}
+
+.ux-btn--lg {
+  height: var(--ux-control-h-lg);
+  padding: 0 var(--ux-sp-4);
+  font-size: var(--ux-fs-xl);
+}
+
+.ux-btn--icon-only {
+  padding: 0;
+  aspect-ratio: 1;
+}
+
+/* #icon 插槽：宿主提供的自定义图标节点（lucide 等），随按钮字号缩放 */
+.ux-btn__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.ux-btn--primary {
+  background: var(--ux-accent);
+  color: var(--ux-fg-on-accent);
+}
+.ux-btn--primary:hover:not(:disabled) {
+  background: var(--ux-accent-hover);
+}
+.ux-btn--primary:active:not(:disabled) {
+  background: var(--ux-accent-active);
+}
+
+.ux-btn--secondary {
+  background: var(--ux-bg);
+  border-color: var(--ux-border);
+  color: var(--ux-fg);
+}
+.ux-btn--secondary:hover:not(:disabled) {
+  background: var(--ux-bg-hover);
+  border-color: var(--ux-border-strong);
+}
+
+.ux-btn--ghost {
+  background: transparent;
+  color: var(--ux-fg-muted);
+}
+.ux-btn--ghost:hover:not(:disabled) {
+  background: var(--ux-bg-hover);
+  color: var(--ux-fg);
+}
+
+.ux-btn--danger {
+  background: var(--ux-danger);
+  color: var(--ux-fg-on-danger);
+}
+.ux-btn--danger:hover:not(:disabled) {
+  background: var(--ux-danger-hover);
+}
+
+.ux-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ux-btn:focus-visible {
+  outline: var(--ux-focus-width) solid var(--ux-focus-ring);
+  outline-offset: 1px;
+}
+
+.ux-btn__spinner {
+  width: 1em;
+  height: 1em;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: var(--ux-radius-full);
+  animation: ux-spin 0.7s linear infinite;
+}
+
+@keyframes ux-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ux-btn__spinner {
+    animation-duration: 2s;
+  }
+}
+
+/* ===== UxInput ===== */
+.ux-field {
+  display: grid;
+  gap: var(--ux-sp-1);
+}
+
+.ux-field__label {
+  font-size: var(--ux-fs-md);
+  color: var(--ux-fg-muted);
+}
+
+.ux-input {
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--ux-control-h-md);
+  padding: 0 var(--ux-sp-2);
+  font: inherit;
+  font-size: var(--ux-fs-lg);
+  color: var(--ux-fg);
+  background: var(--ux-bg);
+  border: 1px solid var(--ux-border);
+  border-radius: var(--ux-radius-sm);
+  transition: border-color var(--ux-dur-fast) var(--ux-ease-out);
+}
+
+.ux-input::placeholder {
+  color: var(--ux-fg-subtle);
+}
+
+.ux-input:hover:not(:disabled) {
+  border-color: var(--ux-border-strong);
+}
+
+.ux-input:focus {
+  outline: var(--ux-focus-width) solid var(--ux-focus-ring);
+  outline-offset: 0;
+  border-color: var(--ux-accent);
+}
+
+.ux-input--invalid {
+  border-color: var(--ux-danger);
+}
+
+.ux-input:disabled {
+  background: var(--ux-bg-sunken);
+  color: var(--ux-fg-subtle);
+  cursor: not-allowed;
+}
+
+.ux-field__hint {
+  font-size: var(--ux-fs-sm);
+  color: var(--ux-fg-subtle);
+}
+
+.ux-field__error {
+  font-size: var(--ux-fs-sm);
+  color: var(--ux-danger-fg);
+}
+
+/* ===== UxKbd ===== */
+.ux-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--ux-control-h-sm);
+  height: var(--ux-control-h-sm);
+  padding: 0 var(--ux-sp-1);
+  font-family: var(--ux-font-family-mono);
+  font-size: var(--ux-fs-sm);
+  color: var(--ux-fg-muted);
+  background: var(--ux-bg-sunken);
+  border: 1px solid var(--ux-border);
+  border-radius: var(--ux-radius-sm);
+}
+
+/* ===== UxDialog ===== */
+.ux-dialog__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--ux-z-modal);
+  display: grid;
+  place-items: center;
+  padding: var(--ux-sp-4);
+  background: var(--ux-scrim);
+}
+
+.ux-dialog {
+  display: flex;
+  flex-direction: column;
+  min-width: 360px;
+  max-width: min(720px, calc(100vw - var(--ux-sp-6)));
+  max-height: calc(100vh - var(--ux-sp-6));
+  background: var(--ux-bg-overlay);
+  border: 1px solid var(--ux-border);
+  border-radius: var(--ux-radius-lg);
+  box-shadow: var(--ux-elev-3);
+}
+
+.ux-dialog:focus {
+  outline: none;
+}
+
+.ux-dialog__header {
+  display: flex;
+  align-items: center;
+  gap: var(--ux-sp-2);
+  padding: var(--ux-sp-3) var(--ux-sp-4);
+  border-bottom: 1px solid var(--ux-border);
+}
+
+.ux-dialog__title {
+  flex: 1;
+  margin: 0;
+  font-size: var(--ux-fs-xl);
+  font-weight: var(--ux-fw-semibold);
+}
+
+.ux-dialog__body {
+  padding: var(--ux-sp-4);
+  overflow: auto;
+}
+
+.ux-dialog__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--ux-sp-2);
+  padding: var(--ux-sp-3) var(--ux-sp-4);
+  border-top: 1px solid var(--ux-border);
+}
+
+/* ===== UxContextMenu ===== */
+.ux-menu {
+  position: fixed;
+  z-index: var(--ux-z-menu);
+  min-width: 180px;
+  padding: var(--ux-sp-1);
+  background: var(--ux-bg-overlay);
+  border: 1px solid var(--ux-border);
+  border-radius: var(--ux-radius);
+  box-shadow: var(--ux-elev-2);
+}
+
+.ux-menu:focus {
+  outline: none;
+}
+
+.ux-menu__item {
+  display: flex;
+  align-items: center;
+  gap: var(--ux-sp-2);
+  width: 100%;
+  padding: var(--ux-sp-1) var(--ux-sp-2);
+  font: inherit;
+  font-size: var(--ux-fs-lg);
+  color: var(--ux-fg);
+  background: none;
+  border: none;
+  border-radius: var(--ux-radius-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ux-menu__item:hover:not(:disabled),
+.ux-menu__item.is-active:not(:disabled) {
+  background: var(--ux-bg-hover);
+}
+
+.ux-menu__item--danger {
+  color: var(--ux-danger-fg);
+}
+
+.ux-menu__item:disabled {
+  color: var(--ux-fg-subtle);
+  cursor: not-allowed;
+}
+
+.ux-menu__item-label {
+  flex: 1;
+}
+
+.ux-menu__kbd {
+  font-size: var(--ux-fs-sm);
+  color: var(--ux-fg-subtle);
+}
+
+.ux-menu__sep {
+  height: 1px;
+  margin: var(--ux-sp-1);
+  background: var(--ux-border);
+}
+
+.ux-menu__row {
+  position: relative;
+}
+
+.ux-menu__label {
+  padding: var(--ux-sp-1) var(--ux-sp-2);
+  font-size: var(--ux-fs-sm);
+  color: var(--ux-fg-subtle);
+}
+
+.ux-menu__lead {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  flex: none;
+  color: var(--ux-fg-muted);
+}
+
+.ux-menu__lead .ux-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.ux-menu__caret {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--ux-fg-subtle);
+}
+
+.ux-menu--sub {
+  position: absolute;
+  left: 100%;
+  top: calc(-1 * var(--ux-sp-1));
+}
+
+.ux-menu--sub.is-flip {
+  left: auto;
+  right: 100%;
+}
+
+/* ===== UxMenuBar ===== */
+.ux-menubar {
+  display: flex;
+  align-items: center;
+  gap: var(--ux-sp-1);
+}
+
+.ux-menubar__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ux-sp-1);
+  padding: var(--ux-sp-1) var(--ux-sp-2);
+  font: inherit;
+  font-size: var(--ux-fs-lg);
+  color: var(--ux-fg);
+  background: none;
+  border: none;
+  border-radius: var(--ux-radius-sm);
+  cursor: pointer;
+}
+
+.ux-menubar__btn:hover:not(:disabled),
+.ux-menubar__btn.is-active:not(:disabled) {
+  background: var(--ux-bg-hover);
+}
+
+.ux-menubar__btn:disabled {
+  color: var(--ux-fg-subtle);
+  cursor: not-allowed;
+}
+
+/* ===== UxToast ===== */
+.ux-toast-host {
+  position: fixed;
+  right: var(--ux-sp-4);
+  bottom: var(--ux-sp-4);
+  z-index: var(--ux-z-toast);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ux-sp-2);
+  pointer-events: none;
+}
+
+.ux-toast {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ux-sp-2);
+  min-width: 260px;
+  max-width: 380px;
+  padding: var(--ux-sp-2) var(--ux-sp-3);
+  font-size: var(--ux-fs-lg);
+  color: var(--ux-fg);
+  background: var(--ux-bg-overlay);
+  border: 1px solid var(--ux-border);
+  border-left: 3px solid var(--ux-fg-subtle);
+  border-radius: var(--ux-radius);
+  box-shadow: var(--ux-elev-2);
+  pointer-events: auto;
+}
+
+.ux-toast__icon {
+  margin-top: var(--ux-sp-1);
+}
+
+.ux-toast__body {
+  flex: 1;
+  display: grid;
+  gap: var(--ux-sp-1);
+}
+
+.ux-toast__action {
+  justify-self: start;
+  font: inherit;
+  font-size: var(--ux-fs-md);
+  color: var(--ux-accent-fg);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.ux-toast--info {
+  border-left-color: var(--ux-info);
+}
+.ux-toast--info .ux-toast__icon {
+  color: var(--ux-info-fg);
+}
+.ux-toast--success {
+  border-left-color: var(--ux-success);
+}
+.ux-toast--success .ux-toast__icon {
+  color: var(--ux-success-fg);
+}
+.ux-toast--warning {
+  border-left-color: var(--ux-warning);
+}
+.ux-toast--warning .ux-toast__icon {
+  color: var(--ux-warning-fg);
+}
+.ux-toast--danger {
+  border-left-color: var(--ux-danger);
+}
+.ux-toast--danger .ux-toast__icon {
+  color: var(--ux-danger-fg);
+}
+
+/* ===== UxSegmented ===== */
+.ux-seg {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ux-sp-1);
+  padding: var(--ux-sp-1);
+  background: var(--ux-bg-sunken);
+  border: 1px solid var(--ux-border);
+  border-radius: var(--ux-radius-sm);
+}
+
+.ux-seg__item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ux-sp-1);
+  height: var(--ux-control-h-sm);
+  padding: 0 var(--ux-sp-3);
+  font: inherit;
+  font-size: var(--ux-fs-md);
+  color: var(--ux-fg-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--ux-radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background-color var(--ux-dur-fast) var(--ux-ease-out),
+    color var(--ux-dur-fast) var(--ux-ease-out);
+}
+
+.ux-seg--md .ux-seg__item {
+  height: var(--ux-control-h-md);
+  padding: 0 var(--ux-sp-4);
+  font-size: var(--ux-fs-lg);
+}
+
+.ux-seg__item:hover:not(:disabled):not(.is-active) {
+  background: var(--ux-bg-hover);
+  color: var(--ux-fg);
+}
+
+.ux-seg__item.is-active {
+  background: var(--ux-accent-subtle);
+  color: var(--ux-accent-fg);
+  font-weight: var(--ux-fw-medium);
+}
+
+.ux-seg__item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ux-seg__item:focus-visible {
+  outline: var(--ux-focus-width) solid var(--ux-focus-ring);
+  outline-offset: 1px;
+}
+
+/* ===== UxTooltip ===== */
+.ux-tip-trigger {
+  display: inline-flex;
+}
+
+.ux-tip {
+  position: fixed;
+  z-index: var(--ux-z-pop);
+  max-width: 280px;
+  padding: var(--ux-sp-1) var(--ux-sp-2);
+  font-size: var(--ux-fs-md);
+  line-height: var(--ux-lh-tight);
+  color: var(--ux-fg-inverse);
+  background: var(--ux-fg);
+  border-radius: var(--ux-radius-sm);
+  box-shadow: var(--ux-elev-2);
+  pointer-events: none;
+}
+
+/* ===== UxBadge ===== */
+.ux-badge-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.ux-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 var(--ux-sp-1);
+  font-size: var(--ux-fs-xs);
+  font-weight: var(--ux-fw-semibold);
+  line-height: 1;
+  color: var(--ux-fg-on-accent);
+  background: var(--ux-accent);
+  border-radius: var(--ux-radius-full);
+}
+
+.ux-badge--dot {
+  min-width: 8px;
+  width: 8px;
+  height: 8px;
+  padding: 0;
+}
+
+.ux-badge--corner {
+  position: absolute;
+  top: 0;
+  right: 0;
+  transform: translate(40%, -40%);
+}
+
+.ux-badge--accent {
+  background: var(--ux-accent);
+  color: var(--ux-fg-on-accent);
+}
+.ux-badge--danger {
+  background: var(--ux-danger);
+  color: var(--ux-fg-on-danger);
+}
+.ux-badge--success {
+  background: var(--ux-success);
+  color: var(--ux-fg-on-success);
+}
+.ux-badge--warning {
+  background: var(--ux-warning);
+  color: var(--ux-fg-on-warning);
+}
+.ux-badge--info {
+  background: var(--ux-info);
+  color: var(--ux-fg-on-info);
+}
+.ux-badge--neutral {
+  background: var(--ux-bg-active);
+  color: var(--ux-fg-muted);
+}
+
+/* ===== UxChip ===== */
+.ux-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ux-sp-1);
+  padding: var(--ux-sp-1) var(--ux-sp-2);
+  font-size: var(--ux-fs-sm);
+  line-height: var(--ux-lh-tight);
+  color: var(--ux-fg-muted);
+  background: var(--ux-bg-sunken);
+  border-radius: var(--ux-radius-full);
+  white-space: nowrap;
+}
+
+.ux-chip__dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  background: currentColor;
+  border-radius: var(--ux-radius-full);
+}
+
+.ux-chip--accent {
+  background: var(--ux-accent-subtle);
+  color: var(--ux-accent-fg);
+}
+.ux-chip--success {
+  background: var(--ux-success-subtle);
+  color: var(--ux-success-fg);
+}
+.ux-chip--warning {
+  background: var(--ux-warning-subtle);
+  color: var(--ux-warning-fg);
+}
+.ux-chip--danger {
+  background: var(--ux-danger-subtle);
+  color: var(--ux-danger-fg);
+}
+.ux-chip--info {
+  background: var(--ux-info-subtle);
+  color: var(--ux-info-fg);
+}
+
+/* ===== UxTree ===== */
+.ux-tree {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  font-size: var(--ux-fs-md);
+  color: var(--ux-fg);
+  outline: none;
+  user-select: none;
+}
+
+.ux-tree__row {
+  display: flex;
+  align-items: center;
+  gap: var(--ux-sp-1);
+  height: var(--ux-control-h-sm);
+  padding-right: var(--ux-sp-2);
+  border-radius: var(--ux-radius-sm);
+  cursor: pointer;
+  position: relative;
+  transition: background-color var(--ux-dur-fast) var(--ux-ease-out);
+}
+
+.ux-tree__row:hover {
+  background: var(--ux-bg-hover);
+}
+
+.ux-tree__row.is-selected {
+  background: var(--ux-accent-subtle);
+  color: var(--ux-accent-fg);
+}
+
+.ux-tree__row.is-disabled {
+  color: var(--ux-fg-subtle);
+  cursor: not-allowed;
+}
+
+.ux-tree__row.is-drop-before::before,
+.ux-tree__row.is-drop-after::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--ux-accent);
+}
+
+.ux-tree__row.is-drop-before::before {
+  top: 0;
+}
+
+.ux-tree__row.is-drop-after::after {
+  bottom: 0;
+}
+
+.ux-tree__row.is-drop-inside {
+  outline: 2px solid var(--ux-accent);
+}
+
+.ux-tree__twist {
+  flex: none;
+  width: var(--ux-sp-4);
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ux-fg-subtle);
+}
+
+.ux-tree__chevron {
+  transition: transform var(--ux-dur-fast) var(--ux-ease-out);
+}
+
+.ux-tree__chevron.is-open {
+  transform: rotate(90deg);
+}
+
+.ux-tree__spinner {
+  animation: ux-tree-spin 0.8s linear infinite;
+}
+
+@keyframes ux-tree-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.ux-tree__icon.is-lost {
+  color: var(--ux-danger-fg);
+}
+
+.ux-tree__icon.is-off {
+  color: var(--ux-fg-subtle);
+}
+
+.ux-tree__label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ux-tree__badge {
+  flex: none;
+  min-width: var(--ux-sp-4);
+  padding: 0 var(--ux-sp-1);
+  border-radius: var(--ux-radius-full, 999px);
+  background: var(--ux-danger);
+  color: var(--ux-fg-on-accent);
+  font-size: var(--ux-fs-xs);
+  line-height: 1.4;
+  text-align: center;
+}
+
+.ux-tree__dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--ux-radius-full);
+  background: var(--ux-danger);
+}
+
+/* ===== UxPopover ===== */
+.ux-pop-trigger {
+  display: inline-flex;
+}
+
+.ux-pop {
+  position: fixed;
+  z-index: var(--ux-z-pop);
+  min-width: 120px;
+  max-width: calc(100vw - var(--ux-sp-4) * 2);
+  padding: var(--ux-sp-2);
+  color: var(--ux-fg);
+  background: var(--ux-bg-overlay);
+  border: 1px solid var(--ux-border);
+  border-radius: var(--ux-radius);
+  box-shadow: var(--ux-elev-2);
+}
+
+.ux-pop:focus {
+  outline: none;
+}
+
+/* ===== UxDropdown ===== */
+.ux-dropdown {
+  display: inline-flex;
+}
+
+.ux-dropdown__caret {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--ux-fg-muted);
+}
+
+.ux-dropdown__menu {
+  z-index: var(--ux-z-dropdown);
+}

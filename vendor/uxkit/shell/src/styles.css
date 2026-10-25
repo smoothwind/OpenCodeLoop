@@ -1,0 +1,860 @@
+/* UxKit 工作台布局壳样式：全部消费语义令牌，受 check-tokens 约束 */
+
+.ux-appshell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--ux-bg);
+  color: var(--ux-fg);
+}
+
+.ux-appshell__menubar {
+  display: flex;
+  align-items: center;
+  height: var(--ux-menubar-h);
+  padding: 0 var(--ux-sp-2);
+  border-bottom: 1px solid var(--ux-band-border);
+  background: var(--ux-band-bg);
+}
+
+.ux-appshell__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+/* ===== UxTitleBar ===== */
+.ux-titlebar {
+  display: flex;
+  align-items: center;
+  height: var(--ux-titlebar-h);
+  background: var(--ux-band-bg);
+  border-bottom: 1px solid var(--ux-band-border);
+  user-select: none;
+}
+
+.ux-titlebar__left {
+  display: flex;
+  align-items: center;
+  gap: var(--ux-sp-1);
+  padding-left: var(--ux-sp-2);
+  -webkit-app-region: no-drag;
+}
+
+.ux-titlebar__center {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ux-sp-2);
+  min-width: 0;
+  font-size: var(--ux-fs-md);
+  color: var(--ux-fg-muted);
+  -webkit-app-region: drag;
+}
+
+.ux-titlebar__title {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ux-titlebar__right {
+  display: flex;
+  align-items: center;
+  -webkit-app-region: no-drag;
+}
+
+.ux-titlebar__controls {
+  display: flex;
+  height: 100%;
+}
+
+.ux-titlebar__ctl {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 100%;
+  font-size: var(--ux-fs-lg);
+  color: var(--ux-fg-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: background-color var(--ux-dur-fast) var(--ux-ease-out);
+}
+
+.ux-titlebar__ctl:hover {
+  background: var(--ux-bg-hover);
+  color: var(--ux-fg);
+}
+
+.ux-titlebar__ctl:focus-visible {
+  outline: var(--ux-focus-width) solid var(--ux-focus-ring);
+  outline-offset: calc(-1 * var(--ux-focus-width));
+}
+
+.ux-titlebar__ctl--close:hover {
+  background: var(--ux-danger);
+  color: var(--ux-fg-on-danger);
+}
+
+/* ===== UxStatusBar ===== */
+.ux-statusbar {
+  display: flex;
+  align-items: center;
+  height: var(--ux-statusbar-h);
+  padding: 0 var(--ux-sp-2);
+  font-size: var(--ux-fs-sm);
+  color: var(--ux-fg-muted);
+  background: var(--ux-band-bg);
+  border-top: 1px solid var(--ux-band-border);
+}
+
+.ux-statusbar__left,
+.ux-statusbar__right {
+  display: flex;
+  align-items: center;
+  gap: var(--ux-sp-3);
+}
+
+.ux-statusbar__right {
+  margin-left: auto;
+}
+
+/* ===== UxActivityBar ===== */
+.ux-activitybar {
+  display: flex;
+  flex-direction: column;
+  width: var(--ux-activitybar-w);
+  padding: var(--ux-sp-1) 0;
+  gap: var(--ux-sp-1);
+  background: var(--ux-bg-sunken);
+  border-right: 1px solid var(--ux-border);
+}
+
+.ux-activitybar__btn {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 40px;
+  font-size: var(--ux-fs-display);
+  color: var(--ux-fg-subtle);
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition:
+    color var(--ux-dur-fast) var(--ux-ease-out),
+    background-color var(--ux-dur-fast) var(--ux-ease-out);
+}
+
+/* 隐藏态图标压暗（PersonalDb SPEC-UI-26） */
+.ux-activitybar__btn .ux-icon {
+  opacity: 0.45;
+  transition: opacity var(--ux-dur-fast) var(--ux-ease-out);
+}
+
+.ux-activitybar__btn:hover {
+  color: var(--ux-fg);
+  background: var(--ux-bg-hover);
+}
+
+.ux-activitybar__btn:hover .ux-icon,
+.ux-activitybar__btn.is-active .ux-icon {
+  opacity: 1;
+}
+
+.ux-activitybar__btn.is-active {
+  color: var(--ux-accent-fg);
+  background: var(--ux-accent-subtle);
+}
+
+.ux-activitybar__btn.is-active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  background: var(--ux-accent);
+}
+
+.ux-activitybar__btn:focus-visible {
+  outline: var(--ux-focus-width) solid var(--ux-focus-ring);
+  outline-offset: calc(-1 * var(--ux-focus-width));
+}
+
+/* ===== UxDockWorkbench ===== */
+.ux-dock {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+
+.ux-dock__activity {
+  display: flex;
+}
+
+.ux-dock__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ux-dock__row {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.ux-dock__side {
+  flex: none;
+  min-width: 0;
+  overflow: auto;
+  background: var(--ux-bg-panel);
+  border-right: 1px solid var(--ux-border);
+}
+
+.ux-dock__side--right {
+  border-right: none;
+  border-left: 1px solid var(--ux-border);
+}
+
+.ux-dock__center {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+}
+
+.ux-dock__bottom {
+  flex: none;
+  overflow: auto;
+  background: var(--ux-bg-panel);
+  border-top: 1px solid var(--ux-border);
+}
+
+/* ===== UxSplitter ===== */
+.ux-splitter {
+  position: relative;
+  flex: none;
+  background: var(--ux-border);
+  transition: background-color var(--ux-dur-fast) var(--ux-ease-out);
+}
+
+.ux-splitter--vertical {
+  width: var(--ux-splitter-w);
+  cursor: col-resize;
+}
+
+.ux-splitter--horizontal {
+  height: var(--ux-splitter-w);
+  cursor: row-resize;
+}
+
+.ux-splitter::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+
+.ux-splitter--vertical::after {
+  left: calc(-1 * var(--ux-splitter-hit));
+  right: calc(-1 * var(--ux-splitter-hit));
+}
+
+.ux-splitter--horizontal::after {
+  top: calc(-1 * var(--ux-splitter-hit));
+  bottom: calc(-1 * var(--ux-splitter-hit));
+}
+
+.ux-splitter:hover,
+.ux-splitter:focus-visible {
+  background: var(--ux-accent);
+}
+
+.ux-splitter:focus-visible {
+  outline: var(--ux-focus-width) solid var(--ux-focus-ring);
+  outline-offset: 0;
+}
+
+body.ux-resizing {
+  user-select: none;
+}
+
+body.ux-resizing--vertical {
+  cursor: col-resize;
+}
+
+body.ux-resizing--horizontal {
+  cursor: row-resize;
+}
+
+/* ===== UxPanel ===== */
+.ux-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--ux-bg-panel);
+}
+
+.ux-panel__head {
+  display: flex;
+  align-items: center;
+  gap: var(--ux-sp-1);
+  height: var(--ux-panel-header-h);
+  padding: 0 var(--ux-sp-2) 0 var(--ux-sp-3);
+  font-size: var(--ux-fs-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ux-fg-subtle);
+  background: var(--ux-band-bg);
+  border-bottom: 1px solid var(--ux-band-border);
+  cursor: grab;
+  user-select: none;
+}
+
+.ux-panel__head:active {
+  cursor: grabbing;
+}
+
+.ux-panel__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ux-panel__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--ux-sp-1);
+}
+
+.ux-panel__btn {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  font-size: var(--ux-fs-lg);
+  color: var(--ux-fg-muted);
+  background: none;
+  border: none;
+  border-radius: var(--ux-radius-sm);
+  cursor: pointer;
+}
+
+.ux-panel__btn:hover {
+  background: var(--ux-bg-hover);
+  color: var(--ux-fg);
+}
+
+.ux-panel__btn:focus-visible {
+  outline: var(--ux-focus-width) solid var(--ux-focus-ring);
+}
+
+.ux-panel__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--ux-sp-3);
+}
+
+.ux-panel--floating {
+  background: var(--ux-bg-overlay);
+}
+
+/* ===== UxFloatPanel ===== */
+.ux-dock__floats {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.ux-float {
+  position: absolute;
+  pointer-events: auto;
+  display: flex;
+  overflow: hidden;
+  background: var(--ux-bg-overlay);
+  border: 1px solid var(--ux-border-strong);
+  border-radius: var(--ux-radius-lg);
+  box-shadow: var(--ux-elev-3);
+}
+
+.ux-float .ux-panel {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+}
+
+.ux-float__resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+}
+
+.ux-float__resize::after {
+  content: '';
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 6px;
+  height: 6px;
+  border-right: 2px solid var(--ux-fg-subtle);
+  border-bottom: 2px solid var(--ux-fg-subtle);
+}
+
+/* ===== 拖拽投放遮罩（VSCode 风格：边缘停靠 / 中央悬浮） ===== */
+.ux-dock__overlay {
+  position: absolute;
+  inset: 0;
+  z-index: var(--ux-z-dock);
+}
+
+.ux-dock__dz {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  font-size: var(--ux-fs-md);
+  color: var(--ux-fg-muted);
+  background: var(--ux-bg-hover);
+  border: 1px dashed var(--ux-border-strong);
+}
+
+.ux-dock__dz.is-over {
+  color: var(--ux-fg-on-accent);
+  background: var(--ux-accent-subtle);
+  border-color: var(--ux-accent);
+}
+
+.ux-dock__dz--left {
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 22%;
+}
+
+.ux-dock__dz--right {
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 22%;
+}
+
+.ux-dock__dz--bottom {
+  left: 22%;
+  right: 22%;
+  bottom: 0;
+  height: 22%;
+}
+
+.ux-dock__dz--float {
+  left: 22%;
+  right: 22%;
+  top: 0;
+  bottom: 22%;
+}
+
+/* ===== 最小化层叠条 ===== */
+.ux-dock__stack {
+  position: absolute;
+  right: var(--ux-sp-3);
+  bottom: var(--ux-sp-3);
+  display: flex;
+  gap: var(--ux-sp-1);
+  z-index: var(--ux-z-dock);
+}
+
+.ux-dock__stack-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ux-sp-1);
+  height: var(--ux-control-h-md);
+  padding: 0 var(--ux-sp-2);
+  font-size: var(--ux-fs-sm);
+  color: var(--ux-fg-muted);
+  background: var(--ux-bg-overlay);
+  border: 1px solid var(--ux-border);
+  border-radius: var(--ux-radius-sm);
+  box-shadow: var(--ux-elev-1);
+  cursor: pointer;
+}
+
+.ux-dock__stack-item:hover {
+  color: var(--ux-fg);
+  background: var(--ux-bg-hover);
+}
+
+/* ===== UxTabs ===== */
+/* 无动作区时宿主透明（保持既有结构）；有动作区时承载功能带并右侧固定动作 */
+.ux-tabs-host--bare {
+  display: contents;
+}
+
+.ux-tabs-host--actions {
+  display: flex;
+  align-items: stretch;
+  background: var(--ux-band-bg);
+  border-bottom: 1px solid var(--ux-band-border);
+}
+
+.ux-tabs-host--actions > .ux-tabs {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border-bottom: none;
+}
+
+.ux-tabs__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--ux-sp-1);
+  flex: none;
+  padding: 0 var(--ux-sp-2);
+}
+
+.ux-tabs {
+  display: flex;
+  align-items: stretch;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  background: var(--ux-band-bg);
+  border-bottom: 1px solid var(--ux-band-border);
+}
+
+.ux-tabs__tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--ux-sp-1);
+  height: var(--ux-toolbar-h);
+  padding: 0 var(--ux-sp-2) 0 var(--ux-sp-3);
+  font-size: var(--ux-fs-md);
+  color: var(--ux-fg-muted);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  border-right: 1px solid var(--ux-border);
+  transition: color var(--ux-dur-fast) var(--ux-ease-out), background-color var(--ux-dur-fast) var(--ux-ease-out);
+}
+
+.ux-tabs__tab:hover {
+  color: var(--ux-fg);
+  background: var(--ux-bg-hover);
+}
+
+.ux-tabs__tab.is-active {
+  color: var(--ux-fg);
+  background: var(--ux-bg);
+}
+
+.ux-tabs__tab.is-active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+  background: var(--ux-accent);
+}
+
+.ux-tabs__tab.is-drag-over::after {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  background: var(--ux-accent);
+}
+
+.ux-tabs__tab:focus-visible {
+  outline: var(--ux-focus-width) solid var(--ux-focus-ring);
+  outline-offset: calc(-1 * var(--ux-focus-width));
+}
+
+.ux-tabs__accent {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: var(--ux-radius-full);
+}
+
+.ux-tabs__labels {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: var(--ux-lh-tight);
+}
+
+.ux-tabs__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ux-tabs__subtitle {
+  font-size: var(--ux-fs-xs);
+  color: var(--ux-fg-subtle);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ux-tabs__tab.is-lost,
+.ux-tabs__tab.is-lost .ux-tabs__subtitle {
+  color: var(--ux-danger-fg);
+}
+
+.ux-tabs__tab.is-off {
+  opacity: 0.55;
+}
+
+.ux-tabs__tab.is-off .ux-tabs__accent {
+  opacity: 0.35;
+}
+
+.ux-tabs__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--ux-radius-full);
+  background: var(--ux-accent);
+}
+
+.ux-tabs__close {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  font-size: var(--ux-fs-lg);
+  color: var(--ux-fg-subtle);
+  background: none;
+  border: none;
+  border-radius: var(--ux-radius-sm);
+  cursor: pointer;
+  visibility: hidden;
+}
+
+.ux-tabs__tab:hover .ux-tabs__close,
+.ux-tabs__tab.is-active .ux-tabs__close,
+.ux-tabs__close:focus-visible {
+  visibility: visible;
+}
+
+.ux-tabs__tab:hover .ux-tabs__dot {
+  display: none;
+}
+
+.ux-tabs__close:hover {
+  color: var(--ux-fg);
+  background: var(--ux-bg-active);
+}
+
+.ux-tabs__close:focus-visible {
+  outline: var(--ux-focus-width) solid var(--ux-focus-ring);
+}
+
+/* ===== UxSplitPane ===== */
+.ux-splitpane {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+
+.ux-splitpane--vertical {
+  flex-direction: column;
+}
+
+.ux-splitpane__pane {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.ux-splitpane--vertical .ux-splitpane__pane {
+  width: 100%;
+}
+
+/* ===== UxPanelToolbar（面板工具栏三段式） ===== */
+.ux-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--ux-sp-2);
+  min-height: var(--ux-control-h-lg);
+  padding: var(--ux-sp-1) var(--ux-sp-2);
+  background: var(--ux-band-bg);
+  border-bottom: 1px solid var(--ux-band-border);
+}
+
+.ux-toolbar__seg {
+  display: flex;
+  align-items: center;
+  gap: var(--ux-sp-2);
+  min-width: 0;
+}
+
+.ux-toolbar__seg--actions {
+  margin-left: auto;
+}
+
+/* 共享原子类：段间竖分隔线 / 弹性占位（可在任意行内工具区复用） */
+.ux-sep {
+  align-self: stretch;
+  width: 1px;
+  margin: var(--ux-sp-1) 0;
+  background: var(--ux-band-border);
+}
+
+.ux-spacer {
+  flex: 1;
+}
+
+/* ===== UxTabList（页签列表 popover） ===== */
+.ux-tablist__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ux-sp-1);
+  height: var(--ux-control-h-sm);
+  padding: 0 var(--ux-sp-2);
+  font: inherit;
+  font-size: var(--ux-fs-md);
+  color: var(--ux-fg-muted);
+  background: none;
+  border: none;
+  border-radius: var(--ux-radius-sm);
+  cursor: pointer;
+}
+
+.ux-tablist__trigger:hover {
+  color: var(--ux-fg);
+  background: var(--ux-bg-hover);
+}
+
+.ux-tablist__trigger:focus-visible {
+  outline: var(--ux-focus-width) solid var(--ux-focus-ring);
+}
+
+.ux-tablist__count {
+  font-size: var(--ux-fs-sm);
+  color: var(--ux-fg-subtle);
+}
+
+.ux-tablist {
+  position: fixed;
+  z-index: var(--ux-z-dropdown);
+  display: flex;
+  flex-direction: column;
+  width: 280px;
+  max-height: 360px;
+  padding: var(--ux-sp-1);
+  background: var(--ux-bg-overlay);
+  border: 1px solid var(--ux-border);
+  border-radius: var(--ux-radius);
+  box-shadow: var(--ux-elev-2);
+}
+
+.ux-tablist__search {
+  padding: var(--ux-sp-1) var(--ux-sp-1) var(--ux-sp-2);
+  border-bottom: 1px solid var(--ux-border);
+}
+
+.ux-tablist__list {
+  margin: 0;
+  padding: var(--ux-sp-1) 0 0;
+  list-style: none;
+  overflow-y: auto;
+}
+
+.ux-tablist__empty {
+  padding: var(--ux-sp-3);
+  text-align: center;
+  color: var(--ux-fg-subtle);
+  font-size: var(--ux-fs-md);
+}
+
+.ux-tablist__item {
+  display: flex;
+  align-items: center;
+  gap: var(--ux-sp-2);
+  padding: var(--ux-sp-1) var(--ux-sp-2);
+  border-radius: var(--ux-radius-sm);
+  cursor: pointer;
+}
+
+.ux-tablist__item.is-cursor,
+.ux-tablist__item:hover {
+  background: var(--ux-bg-hover);
+}
+
+.ux-tablist__item.is-active {
+  background: var(--ux-accent-subtle);
+}
+
+.ux-tablist__accent {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: var(--ux-radius-full);
+}
+
+.ux-tablist__labels {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: var(--ux-lh-tight);
+}
+
+.ux-tablist__title {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--ux-fg);
+}
+
+.ux-tablist__item.is-active .ux-tablist__title {
+  color: var(--ux-accent-fg);
+}
+
+.ux-tablist__subtitle {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--ux-fs-xs);
+  color: var(--ux-fg-subtle);
+}
+
+.ux-tablist__close {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  font-size: var(--ux-fs-lg);
+  color: var(--ux-fg-subtle);
+  background: none;
+  border: none;
+  border-radius: var(--ux-radius-sm);
+  cursor: pointer;
+  visibility: hidden;
+}
+
+.ux-tablist__item:hover .ux-tablist__close,
+.ux-tablist__item.is-cursor .ux-tablist__close {
+  visibility: visible;
+}
+
+.ux-tablist__close:hover {
+  color: var(--ux-fg);
+  background: var(--ux-bg-active);
+}

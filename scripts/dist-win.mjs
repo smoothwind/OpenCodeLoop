@@ -194,11 +194,13 @@ function main() {
   const electron = resolveElectronDist()
   const { dist, staging, network } = prepareOutput()
 
-  const args = [join(root, 'node_modules', 'electron-builder', 'cli.js'), '--win']
+  // 显式 --publish never：CI（tag 构建）下 electron-builder 默认会尝试上传 GitHub Release，
+  // 本项目由 GitHub Actions 的 softprops/action-gh-release 统一发布，避免重复发布/缺少 token 报错
+  const args = [join(root, 'node_modules', 'electron-builder', 'cli.js'), '--win', '--publish', 'never']
   if (electron) args.push(`--config.electronDist=${electron.dir}`)
   if (network) args.push(`--config.directories.output=${staging}`)
 
-  log(`打包安装包（electron-builder --win${electron ? `，runtime ${electron.version ?? '?'}` : ''}）`)
+  log(`打包安装包（electron-builder --win --publish never${electron ? `，runtime ${electron.version ?? '?'}` : ''}）`)
   run(process.execPath, args, env)
 
   const files = network ? copyArtifacts(staging, dist) : readdirSync(dist)

@@ -6,6 +6,11 @@ files:
   - out/**
   - resources/**
   - package.json
+publish:
+  provider: github
+  owner: smoothwind
+  repo: OpenCodeLoop
+artifactName: ${productName}-Setup-${version}.${ext}
 win:
   icon: resources/icon.png
   target:

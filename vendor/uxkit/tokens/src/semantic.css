@@ -1,0 +1,142 @@
+/**
+ * UxKit Tier 2 语义层（semantic）
+ *
+ * 组件与业务代码唯一允许消费的颜色层。
+ * 暗色主题只允许发生在本文件的 .dark 块内（CI 强制：check-tokens R1）。
+ * 约定：
+ *  - 表面/前景成对：--ux-{surface} 必搭配 --ux-fg-on-{surface}
+ *  - 阴影随主题（暗色更重），因此归入本层
+ *  - data-color-mode 与 .dark 双通道切换，color-scheme 同步原生控件
+ */
+:root {
+  color-scheme: light;
+
+  /* 表面 */
+  --ux-bg: var(--ux-gray-0);            /* 应用主表面 */
+  --ux-bg-panel: var(--ux-gray-50);     /* 侧栏/停靠面板 */
+  --ux-bg-sunken: var(--ux-gray-100);   /* 凹陷区（输入底/槽道） */
+  --ux-bg-overlay: var(--ux-gray-0);    /* 浮层（对话框/下拉/菜单） */
+  --ux-bg-hover: rgba(31, 35, 40, 0.05);
+  --ux-bg-active: rgba(31, 35, 40, 0.09);
+  /* 选中态分层（见设计文档 4.4 / check-tokens R4）：
+     控件级（按钮/页签/分段）实心主色，配 --ux-fg-on-accent；
+     行级（表格行/树节点/列表项）用 --ux-accent-subtle + --ux-accent-fg，禁用本令牌 */
+  --ux-bg-selected: var(--ux-accent);
+
+  /* 文本 */
+  --ux-fg: var(--ux-gray-800);
+  --ux-fg-muted: var(--ux-gray-600);
+  --ux-fg-subtle: var(--ux-gray-450);
+  --ux-fg-on-accent: var(--ux-gray-0);
+  --ux-fg-inverse: var(--ux-gray-0);
+
+  /* 边框 */
+  --ux-border: var(--ux-gray-150);
+  --ux-border-strong: var(--ux-gray-300);
+
+  /* 功能带（chrome：菜单栏 / 工具栏 / 页签 / 面板头 / 状态栏）：
+     「带=chrome、内容=画布」层次语言（PersonalDb SPEC-UI-25） */
+  --ux-band-bg: var(--ux-gray-50);
+  --ux-band-border: var(--ux-gray-150);
+
+  /* 交互主色 */
+  --ux-accent: var(--ux-indigo-600);
+  --ux-accent-hover: var(--ux-indigo-700);
+  --ux-accent-active: var(--ux-indigo-800);
+  --ux-accent-subtle: rgba(76, 110, 245, 0.12);
+  --ux-accent-fg: var(--ux-indigo-700);
+  --ux-focus-ring: rgba(76, 110, 245, 0.45);
+
+  /* 功能色（成对） */
+  --ux-danger: var(--ux-red-600);
+  --ux-danger-hover: var(--ux-red-700);
+  --ux-danger-subtle: rgba(224, 49, 49, 0.1);
+  --ux-fg-on-danger: var(--ux-gray-0);
+  /* 功能色前景（文本/图标，AA ≥4.5:1 于浅色表面与 tint 底） */
+  --ux-danger-fg: var(--ux-red-600);
+  --ux-success: var(--ux-green-600);
+  --ux-success-subtle: rgba(45, 164, 78, 0.12);
+  --ux-fg-on-success: var(--ux-gray-0);
+  --ux-success-fg: var(--ux-green-700);
+  --ux-warning: var(--ux-yellow-600);
+  --ux-warning-subtle: rgba(191, 135, 0, 0.12);
+  --ux-fg-on-warning: var(--ux-gray-0);
+  --ux-warning-fg: var(--ux-yellow-700);
+  --ux-info: var(--ux-blue-600);
+  --ux-info-subtle: rgba(9, 105, 218, 0.1);
+  --ux-fg-on-info: var(--ux-gray-0);
+  --ux-info-fg: var(--ux-blue-600);
+
+  /* 阴影 elevation（Fluent 四级，暗色覆盖为更重投影） */
+  --ux-elev-1: 0 1px 3px rgba(13, 17, 23, 0.12);
+  --ux-elev-2: 0 4px 10px rgba(13, 17, 23, 0.14);
+  --ux-elev-3: 0 8px 24px rgba(13, 17, 23, 0.18);
+  --ux-elev-4: 0 16px 40px rgba(13, 17, 23, 0.24);
+
+  /* 遮罩 */
+  --ux-scrim: rgba(13, 17, 23, 0.45);
+}
+
+.dark {
+  color-scheme: dark;
+
+  /* 表面 */
+  --ux-bg: var(--ux-navy-900);
+  --ux-bg-panel: var(--ux-navy-850);
+  --ux-bg-sunken: var(--ux-navy-950);
+  --ux-bg-overlay: var(--ux-navy-800);
+  --ux-bg-hover: rgba(255, 255, 255, 0.06);
+  --ux-bg-active: rgba(255, 255, 255, 0.1);
+  /* 同浅色：控件级实心选中专用，行级请用 --ux-accent-subtle + --ux-accent-fg */
+  --ux-bg-selected: var(--ux-indigo-350);
+
+  /* 文本 */
+  --ux-fg: #e6e9ef;
+  --ux-fg-muted: #9aa3b2;
+  --ux-fg-subtle: var(--ux-gray-400);
+  --ux-fg-on-accent: #10141c;
+  --ux-fg-inverse: var(--ux-gray-900);
+
+  /* 边框 */
+  --ux-border: var(--ux-navy-600);
+  --ux-border-strong: var(--ux-navy-500);
+
+  /* 功能带（chrome band） */
+  --ux-band-bg: var(--ux-navy-850);
+  --ux-band-border: var(--ux-navy-600);
+
+  /* 交互主色（暗色提亮，MdReader 惯例） */
+  --ux-accent: var(--ux-indigo-350);
+  --ux-accent-hover: var(--ux-indigo-300);
+  --ux-accent-active: var(--ux-indigo-400);
+  --ux-accent-subtle: rgba(124, 147, 246, 0.16);
+  --ux-accent-fg: var(--ux-indigo-300);
+  --ux-focus-ring: rgba(124, 147, 246, 0.5);
+
+  /* 功能色（暗色提亮保证对比度） */
+  --ux-danger: var(--ux-red-300);
+  --ux-danger-hover: #f4848a;
+  --ux-danger-subtle: rgba(240, 102, 108, 0.16);
+  --ux-fg-on-danger: #10141c;
+  --ux-danger-fg: var(--ux-red-300);
+  --ux-success: var(--ux-green-300);
+  --ux-success-subtle: rgba(111, 208, 140, 0.14);
+  --ux-fg-on-success: #10141c;
+  --ux-success-fg: var(--ux-green-300);
+  --ux-warning: var(--ux-yellow-300);
+  --ux-warning-subtle: rgba(232, 195, 104, 0.14);
+  --ux-fg-on-warning: #10141c;
+  --ux-warning-fg: var(--ux-yellow-300);
+  --ux-info: var(--ux-blue-300);
+  --ux-info-subtle: rgba(110, 168, 247, 0.14);
+  --ux-fg-on-info: #10141c;
+  --ux-info-fg: var(--ux-blue-300);
+
+  /* 阴影（暗色更深） */
+  --ux-elev-1: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --ux-elev-2: 0 4px 10px rgba(0, 0, 0, 0.45);
+  --ux-elev-3: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --ux-elev-4: 0 16px 40px rgba(0, 0, 0, 0.6);
+
+  --ux-scrim: rgba(0, 0, 0, 0.55);
+}
