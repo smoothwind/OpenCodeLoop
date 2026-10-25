@@ -1,6 +1,6 @@
 {
   "name": "opencodeloop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "OpenCode 无人值守守护管理台：会话检测、权限审批、固定提示词与自动重启循环",
   "main": "./out/main/index.js",
   "author": "Aides",
