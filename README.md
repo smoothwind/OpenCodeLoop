@@ -82,7 +82,7 @@ OpenCodeLoop 是 [OpenCode](https://opencode.ai) 的桌面伴生工具（Electro
 
 ### 安装使用（推荐）
 
-从 `dist/OpenCodeLoop-Setup-0.1.2.exe` 安装（NSIS，可选安装目录，创建桌面快捷方式）；或从 [GitHub Releases](https://github.com/smoothwind/OpenCodeLoop/releases/latest) 下载最新版本。
+从 `dist/OpenCodeLoop-Setup-0.1.3.exe` 安装（NSIS，可选安装目录，创建桌面快捷方式）；或从 [GitHub Releases](https://github.com/smoothwind/OpenCodeLoop/releases/latest) 下载最新版本。
 
 前置要求：本机已安装 `opencode` CLI（PATH 可见，或在设置中指定完整路径）。
 
@@ -95,7 +95,7 @@ OpenCodeLoop 是 [OpenCode](https://opencode.ai) 的桌面伴生工具（Electro
 ```powershell
 npm install       # 安装依赖
 npm run dev       # 开发模式（electron-vite dev）
-npm run test      # vitest 单元测试（106 例）
+npm run test      # vitest 单元测试（117 例）
 npm run dist      # 打包 Windows 安装包
 ```
 
@@ -133,7 +133,7 @@ src/
   preload/         # contextBridge 桥接
   renderer/src/    # Vue 3 渲染层（任务/会话/权限/提示词/设置五视图）
 tests/             # vitest 单元测试
-scripts/           # dist-win.mjs 打包 / UxKit 别名与同步
+scripts/           # dist-win.mjs 打包 / after-pack.mjs 体积裁剪 / UxKit 别名与同步
 site/              # GitHub Pages 落地页（静态站点）
 vendor/uxkit/      # 内置 UxKit（CI 构建用，npm run sync-ux 生成）
 .github/workflows/ # CI：Release（构建+发布）/ Pages（站点部署）
@@ -148,6 +148,20 @@ vendor/uxkit/      # 内置 UxKit（CI 构建用，npm run sync-ux 生成）
 3. 项目在网络盘时产物先落本地临时目录，完成后回拷 `dist/`（文件名空格转连字符）
 
 安装包统一命名为 `OpenCodeLoop-Setup-<version>.exe`（`electron-builder.yml` 的 `artifactName`），与 Release 资产和更新检查保持一致。
+
+### 安装包体积
+
+Electron 运行时本身约占 90 MB（`OpenCodeLoop.exe` 235 MB 经 LZMA 压缩），是本项目安装包的主要体积来源。已做的裁剪：
+
+| 措施 | 效果 |
+|---|---|
+| `win.electronLanguages: [zh-CN, en-US]` | Electron 语言包 48.3 MB → 1.1 MB |
+| `vue` 移到 devDependencies + `!node_modules/**` | `app.asar` 15.5 MB → 0.6 MB（渲染层已由 Vite 打包） |
+| `compression: maximum` | 7za 以最高压缩级别打包应用 |
+| `scripts/after-pack.mjs` 删除 `dxcompiler.dll` / `dxil.dll` | 再减约 6 MB（仅 WebGPU/DX12 使用；界面与 WebGL 不受影响） |
+| `build/installer.nsh` 清理旧版本残留 | 覆盖升级时删除旧语言包与 DXIL 编译器，避免磁盘残留约 73 MB |
+
+当前安装包 91.6 MB。若后续需要 WebGPU，移除 `electron-builder.yml` 中的 `afterPack` 即可恢复；进一步显著缩小体积只能更换运行时（如 Tauri）或改用 `nsis-web` 在线安装包（首次安装需联网）。
 
 ## 自动构建与发布
 
@@ -167,8 +181,8 @@ vendor/uxkit/      # 内置 UxKit（CI 构建用，npm run sync-ux 生成）
 2. 提交并推送
 3. 打 tag 并推送：
    ```powershell
-   git tag v0.1.2
-   git push origin v0.1.2
+   git tag v0.1.3
+   git push origin v0.1.3
    ```
 
 工作流会先校验 tag 与 `package.json` 版本一致，再构建并发布。发布产物包括 `OpenCodeLoop-Setup-<version>.exe`、`*.exe.blockmap`、`latest.yml`。

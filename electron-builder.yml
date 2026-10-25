@@ -6,6 +6,10 @@ files:
   - out/**
   - resources/**
   - package.json
+  # 渲染层已由 Vite 打包，运行时不需要 node_modules（vue 仅作为构建期依赖）
+  - '!node_modules/**'
+compression: maximum
+afterPack: ./scripts/after-pack.mjs
 publish:
   provider: github
   owner: smoothwind
@@ -13,6 +17,10 @@ publish:
 artifactName: ${productName}-Setup-${version}.${ext}
 win:
   icon: resources/icon.png
+  # Electron 自带 55 种语言包（约 48 MB），本项目界面只有中文；保留中英文即可
+  electronLanguages:
+    - zh-CN
+    - en-US
   target:
     - target: nsis
       arch:

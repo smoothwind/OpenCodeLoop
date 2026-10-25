@@ -1,6 +1,6 @@
 {
   "name": "opencodeloop",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "OpenCode 无人值守守护管理台：会话检测、权限审批、固定提示词与自动重启循环",
   "main": "./out/main/index.js",
   "author": "Aides",
@@ -19,9 +19,7 @@
     "electron": "^44.4.3",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
-    "vitest": "^3.2.4"
-  },
-  "dependencies": {
+    "vitest": "^3.2.4",
     "vue": "^3.5.43"
   }
 }
