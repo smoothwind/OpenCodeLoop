@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   WAIT_LIMIT_DEFAULT_MIN,
   waitLimitMs,
+  timeoutAction,
   sessionBusy,
   busyReason,
   outcomeText,
@@ -17,6 +18,16 @@ describe('waitLimitMs（会话等待上限）', () => {
     expect(waitLimitMs({ sessionWaitLimitMin: 'abc' })).toBe(30 * 60 * 1000)
     expect(waitLimitMs({ sessionWaitLimitMin: 45 })).toBe(45 * 60 * 1000)
     expect(waitLimitMs({ sessionWaitLimitMin: 0.5 })).toBe(30 * 1000)
+  })
+})
+
+describe('timeoutAction（等待超时处置）', () => {
+  it('默认/非法值回退 send；仅 stop 生效', () => {
+    expect(timeoutAction({})).toBe('send')
+    expect(timeoutAction({ sessionWaitTimeoutAction: 'send' })).toBe('send')
+    expect(timeoutAction({ sessionWaitTimeoutAction: 'bogus' })).toBe('send')
+    expect(timeoutAction({ sessionWaitTimeoutAction: null })).toBe('send')
+    expect(timeoutAction({ sessionWaitTimeoutAction: 'stop' })).toBe('stop')
   })
 })
 

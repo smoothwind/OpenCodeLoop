@@ -6,6 +6,7 @@
  *
  * 组成：
  * - waitLimitMs：任务配置的等待上限（分钟 → 毫秒，0 = 不限制，默认 30 分钟）
+ * - timeoutAction：等待超时后的处置（'send' 继续发送并告警 / 'stop' 停止守护）
  * - sessionBusy / busyReason：判定“运行中 / 有排队消息”并生成日志文案
  * - SessionLease：同一会话在进程内只允许一个守护发送（防多任务共用会话时并发投递）
  */
@@ -20,6 +21,11 @@ export function waitLimitMs(cfg) {
   if (!Number.isFinite(min)) return WAIT_LIMIT_DEFAULT_MIN * 60 * 1000
   if (min <= 0) return 0
   return Math.round(min * 60 * 1000)
+}
+
+/** 等待超时处置：'send' 继续发送并告警（默认）；'stop' 停止守护 */
+export function timeoutAction(cfg) {
+  return cfg?.sessionWaitTimeoutAction === 'stop' ? 'stop' : 'send'
 }
 
 /** 会话是否忙碌：agent loop 运行中，或仍有排队消息未投递 */

@@ -2,14 +2,13 @@
 const bridge = () => window.opencodeloop
 
 export const api = {
-  get available() {
-    return !!bridge()
-  },
   getConfig: () => bridge()?.getConfig(),
   setConfig: (partial) => bridge()?.setConfig(partial),
   daemonStart: (taskId) => bridge()?.daemonStart(taskId),
   daemonStop: (taskId) => bridge()?.daemonStop(taskId),
   daemonRestart: (taskId) => bridge()?.daemonRestart(taskId),
+  daemonSkipWait: (taskId) => bridge()?.daemonSkipWait(taskId),
+  daemonInterruptSession: (taskId) => bridge()?.daemonInterruptSession(taskId),
   daemonSnapshots: () => bridge()?.daemonSnapshots(),
   /** arg: taskId（已保存任务）或 { project }（未保存草稿） */
   listSessions: (arg) => bridge()?.listSessions(arg),
@@ -20,7 +19,6 @@ export const api = {
   attachRestart: (arg) => bridge()?.attachRestart(arg),
   readPermissions: (taskId) => bridge()?.readPermissions(taskId),
   writePermissions: (taskId, p) => bridge()?.writePermissions(taskId, p),
-  diagnoseBinary: () => bridge()?.diagnoseBinary(),
   envDetect: () => bridge()?.envDetect(),
   dataDir: () => bridge()?.dataDir(),
   getLoginItem: () => bridge()?.getLoginItem(),

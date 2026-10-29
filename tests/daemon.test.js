@@ -278,6 +278,103 @@ describe('会话闸门（等待 TUI/其他客户端空闲）', () => {
     expect(d.tail(120).map((l) => l.title).some((t) => t.includes('超过上限'))).toBe(true)
   }, 25000)
 
+  it('等待超过上限后按配置停止守护（sessionWaitTimeoutAction=stop）', async () => {
+    const { proj, fake, join } = await setupFake()
+    const d = new Daemon({
+      resolveSession: async () => 'ses_test',
+      probeSession: async () => ({ ok: true, active: true, inbox: 0, outcome: 'succeeded' }),
+      waitSessionIdle: async () => {
+        await sleep(30)
+        return { ok: true }
+      },
+      acquireSession: () => ({ ok: true }),
+      releaseSession: () => {}
+    })
+    const cfg = { ...baseCfg(proj, join), sessionWaitLimitMin: 0.02, sessionWaitTimeoutAction: 'stop' }
+    await d.start(cfg, { path: fake, direct: false })
+    for (let i = 0; i < 160 && d.state.status !== 'stopped'; i++) await sleep(50)
+    expect(d.state.status).toBe('stopped')
+    expect(d.state.runs).toBe(0)
+    const titles = d.tail(120).map((l) => l.title)
+    expect(titles.some((t) => t.includes('按配置停止守护'))).toBe(true)
+    expect(titles.some((t) => t.includes('会话等待超时'))).toBe(true)
+  }, 25000)
+
+  it('等待期“跳过等待”：本轮不再等待直接发送', async () => {
+    const { proj, fake, join } = await setupFake()
+    const d = new Daemon({
+      resolveSession: async () => 'ses_test',
+      probeSession: async () => ({ ok: true, active: true, inbox: 0, outcome: 'succeeded' }),
+      waitSessionIdle: async () => {
+        await sleep(30)
+        return { ok: true }
+      },
+      acquireSession: () => ({ ok: true }),
+      releaseSession: () => {}
+    })
+    await d.start(baseCfg(proj, join), { path: fake, direct: false })
+    for (let i = 0; i < 50 && d.state.status !== 'waiting'; i++) await sleep(20)
+    expect(d.state.status).toBe('waiting')
+    const r = d.skipWait()
+    expect(r.ok).toBe(true)
+    for (let i = 0; i < 120 && d.state.status !== 'done'; i++) await sleep(50)
+    expect(d.state.status).toBe('done')
+    expect(d.state.runs).toBe(1)
+    expect(d.tail(120).map((l) => l.title).some((t) => t.includes('已跳过会话等待'))).toBe(true)
+  }, 25000)
+
+  it('等待期“中断会话”：打断目标回合后自动放行', async () => {
+    const { proj, fake, join } = await setupFake()
+    let targetBusy = true
+    const interrupted = []
+    const d = new Daemon({
+      resolveSession: async () => 'ses_test',
+      probeSession: async () => ({ ok: true, active: targetBusy, inbox: 0, outcome: 'succeeded' }),
+      waitSessionIdle: async () => {
+        await sleep(30)
+        return { ok: true }
+      },
+      interruptSession: async (sid) => {
+        interrupted.push(sid)
+        targetBusy = false
+        return { ok: true, interrupted: true }
+      },
+      acquireSession: () => ({ ok: true }),
+      releaseSession: () => {}
+    })
+    await d.start(baseCfg(proj, join), { path: fake, direct: false })
+    for (let i = 0; i < 50 && d.state.status !== 'waiting'; i++) await sleep(20)
+    expect(d.state.status).toBe('waiting')
+    const r = await d.interruptTargetSession()
+    expect(r.ok).toBe(true)
+    expect(interrupted).toEqual(['ses_test'])
+    for (let i = 0; i < 120 && d.state.status !== 'done'; i++) await sleep(50)
+    expect(d.state.status).toBe('done')
+    expect(d.state.runs).toBe(1)
+    expect(d.tail(120).map((l) => l.title).some((t) => t.includes('已中断服务器端会话执行'))).toBe(true)
+  }, 25000)
+
+  it('等待期处置仅在会话闸门等待中可用', async () => {
+    const { proj, fake, join } = await setupFake()
+    const d = new Daemon({
+      resolveSession: async () => 'ses_test',
+      probeSession: async () => ({ ok: true, active: false, inbox: 0, outcome: 'succeeded' })
+    })
+    expect(d.skipWait().ok).toBe(false)
+    expect((await d.interruptTargetSession()).ok).toBe(false)
+    await d.start(baseCfg(proj, join), { path: fake, direct: false })
+    for (let i = 0; i < 80 && d.state.status !== 'done'; i++) await sleep(50)
+    expect(d.state.status).toBe('done')
+    // 结束后同样不可用
+    expect(d.skipWait().ok).toBe(false)
+  }, 20000)
+
+  it('sanitizeTask：等待超时处置仅接受 stop，其余回退 send', () => {
+    expect(sanitizeTask({ id: 'a' }).sessionWaitTimeoutAction).toBe('send')
+    expect(sanitizeTask({ id: 'a', sessionWaitTimeoutAction: 'stop' }).sessionWaitTimeoutAction).toBe('stop')
+    expect(sanitizeTask({ id: 'a', sessionWaitTimeoutAction: 'bogus' }).sessionWaitTimeoutAction).toBe('send')
+  })
+
   it('等待期间停止：不发送、不再探测后续轮次', async () => {
     const { proj, fake, join } = await setupFake()
     let probes = 0
@@ -412,6 +509,48 @@ describe('并发保护', () => {
     expect(d.state.runs).toBe(1)
     expect(d.state.status).toBe('done')
   }, 20000)
+})
+
+describe('立即重启（运行中）', () => {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+  it('运行中点立即重启：终止当前轮后跳过重启延时直接进入下一轮', async () => {
+    const { mkdtemp, writeFile } = await import('node:fs/promises')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const proj = await mkdtemp(join(tmpdir(), 'ocl-restart-'))
+    const fake = join(proj, 'fake.cmd')
+    // 每轮跑约 2 秒且不输出 DONE（保证退出后存在重启等待环节）
+    await writeFile(fake, '@echo off\r\nping -n 3 127.0.0.1 >nul\r\necho still working\r\nexit /b 0\r\n', 'utf-8')
+    const d = new Daemon()
+    const cfg = {
+      ...taskDefaults(),
+      id: 't',
+      project: proj,
+      attachUrl: '',
+      sessionMode: 'new',
+      prompt: 'x',
+      doneKeyword: 'DONE',
+      retryDelay: 8, // 未消费 skipDelay 时：终止当前轮后需等 8 秒才进入下一轮
+      logFile: join(proj, 'l.log')
+    }
+    await d.start(cfg, { path: fake, direct: false })
+    for (let i = 0; i < 80 && d.state.runs < 1; i++) await sleep(25)
+    expect(d.state.runs).toBe(1)
+
+    const t0 = Date.now()
+    d.restartNow()
+    let reached = false
+    for (let i = 0; i < 120 && !reached; i++) {
+      await sleep(50)
+      if (d.state.runs >= 2) reached = true
+    }
+    expect(reached).toBe(true)
+    // 跳过延时后应在数秒内进入第 2 轮（含杀进程与闸门开销）；未修复则 >= 8 秒
+    expect(Date.now() - t0).toBeLessThan(6000)
+    await d.stop('测试停止')
+    expect(d.state.status).toBe('stopped')
+  }, 25000)
 })
 
 describe('托管服务端口冲突自动修复', () => {

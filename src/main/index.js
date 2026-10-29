@@ -515,6 +515,11 @@ function registerIpc() {
     daemons.get(taskId)?.restartNow()
     return { ok: true }
   })
+  // 会话等待期的处置：跳过等待（本轮直接发送）/ 中断目标会话正在执行的回合
+  ipcMain.handle('daemon:skip-wait', (_e, taskId) => daemons.get(taskId)?.skipWait() || { ok: false, error: '守护不存在' })
+  ipcMain.handle('daemon:interrupt-session', (_e, taskId) =>
+    daemons.get(taskId)?.interruptTargetSession() || { ok: false, error: '守护不存在' }
+  )
   ipcMain.handle('daemon:snapshots', () =>
     [...daemons.entries()].map(([taskId, d]) => ({
       taskId,

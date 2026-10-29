@@ -16,7 +16,9 @@ publish:
   repo: OpenCodeLoop
 artifactName: ${productName}-Setup-${version}.${ext}
 win:
-  icon: resources/icon.png
+  # 预生成 ICO（256×256 PNG 项）：绕开 electron-builder 图标工具的 WASM 转换，
+  # 该工具在部分环境（如 Node 24）稳定报 WebAssembly.Memory 分配失败
+  icon: build/icon.ico
   # Electron 自带 55 种语言包（约 48 MB），本项目界面只有中文；保留中英文即可
   electronLanguages:
     - zh-CN

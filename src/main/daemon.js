@@ -18,9 +18,10 @@ import { spawn } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { createWriteStream } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
+import { StringDecoder } from 'node:string_decoder'
 import { dirname, join } from 'node:path'
 import { classifyError, planRecovery, KIND_TEXT, formatClock, formatWait } from './errpolicy.js'
-import { waitLimitMs, sessionBusy, busyReason, outcomeText } from './sessiongate.js'
+import { waitLimitMs, timeoutAction, sessionBusy, busyReason, outcomeText } from './sessiongate.js'
 
 /** 日志文件缓冲写入流：集中管理打开/写/关，替代逐块 appendFile */
 export class LogFileWriter {
@@ -289,6 +290,8 @@ export class Daemon extends EventEmitter {
     this._gateWarned = false
     /** 会话等待期点击“立即重启”：仅重新探测，不结束守护 */
     this._gateRestart = false
+    /** 会话等待期点击“跳过等待”：本轮不再等待直接发送（一次性，消费即清除） */
+    this._gateForce = false
     this._svcFixes = 0
     this._svcPort = null
     this.state = initialState()
@@ -357,17 +360,18 @@ export class Daemon extends EventEmitter {
       this.doneBuf = ''
       this._lineBuf = ''
       this._errBuf = ''
-    this.restartCount = 0
-    this._failStreak = 0
-    this._nextLabel = ''
-    this._svcFixes = 0
-    this._svcPort = null
-    this._abortGate()
-    this._releaseSessionLease()
-    this._roundSession = ''
-    this._gateWarned = false
-    this._gateRestart = false
-    this.cfg = cfg
+      this.restartCount = 0
+      this._failStreak = 0
+      this._nextLabel = ''
+      this._svcFixes = 0
+      this._svcPort = null
+      this._abortGate()
+      this._releaseSessionLease()
+      this._roundSession = ''
+      this._gateWarned = false
+      this._gateRestart = false
+      this._gateForce = false
+      this.cfg = cfg
       this.bin = bin
       this.caps = caps
       this.state = initialState()
@@ -440,6 +444,46 @@ export class Daemon extends EventEmitter {
     this.log('info', '请求立即重启，终止当前轮')
     this._kill('当前轮已终止（立即重启）')
     if (sid) this._interruptServerSession(sid)
+  }
+
+  /** 唤醒会话闸门等待循环：中断当前长轮询/休眠并重新探测（仅会话等待期使用） */
+  _wakeGate() {
+    this._gateRestart = true
+    this._abortGate()
+    this._wake?.()
+  }
+
+  _assertSessionWait(action) {
+    if (this.state.status === 'waiting' && this.state.sessionWaitStartedAt) return null
+    return { ok: false, error: `仅会话等待中可${action}（当前状态：${this.state.status}）` }
+  }
+
+  /**
+   * 等待期“跳过等待”：本轮不再等待空闲，唤醒闸门后直接发送。
+   * 进程内租约仍然生效——会话被本应用其他任务持有时，跳过会等到拿到租约为止。
+   */
+  skipWait() {
+    const guard = this._assertSessionWait('跳过等待')
+    if (guard) return guard
+    this._gateForce = true
+    this.log('warn', '手动跳过会话等待：本轮将直接发送提示词')
+    this._wakeGate()
+    return { ok: true }
+  }
+
+  /**
+   * 等待期“中断会话”：打断目标会话正在执行的回合（TUI/其他客户端），
+   * 闸门随后探测到空闲自动放行；不结束守护。
+   */
+  async interruptTargetSession() {
+    const guard = this._assertSessionWait('中断目标会话')
+    if (guard) return guard
+    const sid = this._leasedSession || (await this._resolveTargetSession())
+    if (!sid) return { ok: false, error: '无法确定目标会话（新会话模式每轮新建，无需中断）' }
+    this.log('warn', `手动中断目标会话 ${sid} 正在执行的回合`)
+    this._interruptServerSession(sid)
+    this._wakeGate()
+    return { ok: true, sessionId: sid }
   }
 
   _clearTimer() {
@@ -539,6 +583,7 @@ export class Daemon extends EventEmitter {
     if (!sid || !this.probeSession) return { ok: true, sessionId: sid }
 
     const limit = waitLimitMs(this.cfg)
+    const onTimeout = timeoutAction(this.cfg)
     const startedAt = Date.now()
     const deadline = limit > 0 ? startedAt + limit : 0
     let announced = ''
@@ -560,14 +605,29 @@ export class Daemon extends EventEmitter {
           this.log('warn', `${reason}（同一会话不建议配置多个守护任务）`)
           announced = reason
         }
-        if (deadline && !leaseTimeoutWarned && Date.now() >= deadline) {
-          leaseTimeoutWarned = true
-          this.log('warn', `等待已超过上限（${formatWait(limit)}），但会话仍被任务「${owner}」占用；为避免并发投递继续等待`)
+        if (deadline && Date.now() >= deadline) {
+          if (onTimeout === 'stop') {
+            this.log('warn', `等待已超过上限（${formatWait(limit)}），且会话仍被任务「${owner}」占用；按配置停止守护`)
+            this.stop('会话等待超时，按任务配置停止守护')
+            return { ok: false }
+          }
+          if (!leaseTimeoutWarned) {
+            leaseTimeoutWarned = true
+            this.log('warn', `等待已超过上限（${formatWait(limit)}），但会话仍被任务「${owner}」占用；为避免并发投递继续等待`)
+          }
         }
         await this._sleep(5000)
         continue
       }
       this._leasedSession = sid
+
+      // 1.5) 跳过等待：本轮直接发送（仍需先拿到租约，保证进程内单写者）
+      if (this._gateForce) {
+        this._gateForce = false
+        this.log('warn', '已跳过会话等待，本轮直接发送（目标会话可能仍在运行）')
+        this._clearSessionWait()
+        return { ok: true, sessionId: sid }
+      }
 
       // 2) 服务端状态：/api/session/active 才是权威的“正在执行”标记
       const probe = await this.probeSession(sid).catch((err) => ({ ok: false, error: String(err?.message || err) }))
@@ -607,8 +667,13 @@ export class Daemon extends EventEmitter {
         this.log('info', `仍在等待会话空闲（已等待 ${formatWait(Date.now() - startedAt)}；${reason}）`)
       }
 
-      // 4) 等待上限：只对“会话忙”生效；被其他任务持租约时继续等待以保证单写者
+      // 4) 等待上限：只对“会话忙”生效；超时处置按任务配置（继续发送 / 停止守护）
       if (deadline && Date.now() >= deadline) {
+        if (onTimeout === 'stop') {
+          this.log('warn', `等待会话空闲已超过上限（${formatWait(limit)}），按配置停止守护`)
+          this.stop('会话等待超时，按任务配置停止守护')
+          return { ok: false }
+        }
         this.log('warn', `等待会话空闲已超过上限（${formatWait(limit)}），按配置继续发送；目标会话可能仍在运行`)
         this._clearSessionWait()
         return { ok: true, sessionId: sid }
@@ -794,8 +859,11 @@ export class Daemon extends EventEmitter {
       this.state.status = 'waiting'
       this.state.nextRestartAt = untilMs != null ? untilMs : Date.now() + delaySec * 1000
       this.emitState()
-      await this._sleep(Math.max(1000, this.state.nextRestartAt - Date.now()))
-      if (gen !== this._gen) return
+      // 「立即重启」终止当前轮后跳过重启延时（skipDelay 由 restartNow 设置，此处消费）
+      if (!this.skipDelay) {
+        await this._sleep(Math.max(1000, this.state.nextRestartAt - Date.now()))
+        if (gen !== this._gen) return
+      }
       this.skipDelay = false
       this.state.nextRestartAt = null
     }
@@ -868,6 +936,10 @@ export class Daemon extends EventEmitter {
       this.state.pid = child.pid
       this.emitState()
 
+      // 每轮独立的 UTF-8 解码器：中文等多字节字符跨 chunk 边界时不会乱码
+      const decOut = new StringDecoder('utf-8')
+      const decErr = new StringDecoder('utf-8')
+
       let settled = false
       const finish = (code) => {
         if (settled) return
@@ -902,8 +974,8 @@ export class Daemon extends EventEmitter {
         resolve(code)
       }
 
-      const onChunk = (buf, stream) => {
-        const text = buf.toString('utf-8')
+      // onChunk 接收已解码文本（解码器按轮独立，见 decOut/decErr）
+      const onChunk = (text, stream) => {
         this._writeLog(text)
         this._detectSvcConflict(text)
         if (stream === 'stderr') return
@@ -919,66 +991,62 @@ export class Daemon extends EventEmitter {
         const lines = this._lineBuf.split(/\r?\n/)
         this._lineBuf = lines.pop() || ''
         for (const line of lines) {
-          const t = line.trim()
-          if (!t) continue
-          // JSON 事件行：识别为智能体交互（AI 文本/工具/错误）则语义化展示；
-          // 未识别事件类型（step_start 等）仅用于捕获实际会话 ID；非 JSON 行按原始输出展示
-          if (t.startsWith('{')) {
-            const ev = parseRunEvent(t)
-            if (ev?.sessionId && ev.sessionId !== this.state.sessionId) {
-              // 捕获本轮实际写入的 opencode 会话
-              this.state.sessionId = ev.sessionId
-              this.emitState()
-            }
-            if (ev && !ev.skip) {
-              this.emitLine({ time: Date.now(), level: ev.level, title: ev.title, detail: ev.detail })
-              // 错误事件纳入轮内错误缓冲，供退出后分类定策略
-              if (ev.level === 'error' && ev.errorText) this._pushErr(ev.errorText)
-            }
-          } else {
-            this.emitLine({ time: Date.now(), level: 'info', title: clip(t, 160), detail: t })
-          }
+          this._emitParsedLine(line)
         }
       }
 
-      child.stdout.on('data', (b) => onChunk(b, 'stdout'))
-      child.stderr.on('data', (b) => {
-        const text = b.toString('utf-8')
+      const onStderrText = (text) => {
         this._writeLog(text)
         this._detectSvcConflict(text)
         const t = text.trim()
         // stderr 错误文案纳入分类缓冲（额度不足等错误常经 stderr 输出）
         if (t) this._pushErr(t)
         if (t) this.emitLine({ time: Date.now(), level: 'warn', title: clip(t, 160), detail: t })
-      })
+      }
+
+      child.stdout.on('data', (b) => onChunk(decOut.write(b), 'stdout'))
+      child.stderr.on('data', (b) => onStderrText(decErr.write(b)))
 
       child.on('error', (err) => {
         this.state.lastError = String(err?.message || err)
         this.log('error', `进程错误：${this.state.lastError}`)
         finish(-1)
       })
-      child.on('exit', (code) => {
-        // 冲刷残行缓冲（最后一行可能无换行符）
+      // close（而非 exit）：stdio 流全部关闭后触发，保证最后一批输出（可能含
+      // DONE 标记或最终错误事件）先于完成判定被处理，避免完成的轮被误判为失败
+      child.on('close', (code) => {
+        // 冲刷解码器残字与残行缓冲（最后一行可能无换行符）
+        const tailOut = decOut.end()
+        if (tailOut) onChunk(tailOut, 'stdout')
+        const tailErr = decErr.end()
+        if (tailErr) onStderrText(tailErr)
         const rest = (this._lineBuf || '').trim()
         this._lineBuf = ''
-        if (rest) {
-          if (rest.startsWith('{')) {
-            const evEvent = parseRunEvent(rest)
-            if (evEvent?.sessionId && evEvent.sessionId !== this.state.sessionId) {
-              this.state.sessionId = evEvent.sessionId
-              this.emitState()
-            }
-            if (evEvent && !evEvent.skip) {
-              this.emitLine({ time: Date.now(), level: evEvent.level, title: evEvent.title, detail: evEvent.detail })
-              if (evEvent.level === 'error' && evEvent.errorText) this._pushErr(evEvent.errorText)
-            }
-          } else {
-            this.emitLine({ time: Date.now(), level: 'info', title: clip(rest, 160), detail: rest })
-          }
-        }
+        if (rest) this._emitParsedLine(rest)
         finish(code)
       })
     })
+  }
+
+  /** 解析单行输出：JSON 事件行语义化展示并捕获会话 ID，非 JSON 行原样展示 */
+  _emitParsedLine(line) {
+    const t = line.trim()
+    if (!t) return
+    if (t.startsWith('{')) {
+      const ev = parseRunEvent(t)
+      if (ev?.sessionId && ev.sessionId !== this.state.sessionId) {
+        // 捕获本轮实际写入的 opencode 会话
+        this.state.sessionId = ev.sessionId
+        this.emitState()
+      }
+      if (ev && !ev.skip) {
+        this.emitLine({ time: Date.now(), level: ev.level, title: ev.title, detail: ev.detail })
+        // 错误事件纳入轮内错误缓冲，供退出后分类定策略
+        if (ev.level === 'error' && ev.errorText) this._pushErr(ev.errorText)
+      }
+    } else {
+      this.emitLine({ time: Date.now(), level: 'info', title: clip(t, 160), detail: t })
+    }
   }
 
   _writeLog(text) {

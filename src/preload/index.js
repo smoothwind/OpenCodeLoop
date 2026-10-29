@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld('opencodeloop', {
   daemonStart: (taskId) => ipcRenderer.invoke('daemon:start', taskId),
   daemonStop: (taskId) => ipcRenderer.invoke('daemon:stop', taskId),
   daemonRestart: (taskId) => ipcRenderer.invoke('daemon:restart', taskId),
+  daemonSkipWait: (taskId) => ipcRenderer.invoke('daemon:skip-wait', taskId),
+  daemonInterruptSession: (taskId) => ipcRenderer.invoke('daemon:interrupt-session', taskId),
   daemonSnapshots: () => ipcRenderer.invoke('daemon:snapshots'),
 
   listSessions: (arg) => ipcRenderer.invoke('opencode:sessions', arg),

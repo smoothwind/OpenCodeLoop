@@ -2,7 +2,7 @@
  * store.js — 应用配置持久化（userData/config.json，原子写盘）
  * v2 数据模型：全局设置 + tasks[]（多守护任务）；首次加载自动从 v1 扁平字段迁移。
  */
-import { readFile, writeFile, rename, mkdir, rm } from 'node:fs/promises'
+import { copyFile, readFile, writeFile, rename, mkdir, rm } from 'node:fs/promises'
 import { dirname, join, basename } from 'node:path'
 
 /** 全局缺省配置 */
@@ -41,6 +41,8 @@ export function taskDefaults() {
     maxRestarts: 0,
     /** 发送前等待目标会话空闲的上限（分钟，0 = 不限；默认 30） */
     sessionWaitLimitMin: 30,
+    /** 等待超时处置：'send' 继续发送并告警；'stop' 停止守护 */
+    sessionWaitTimeoutAction: 'send',
     prompt:
       '读取 .progress.md，继续完成未完成的任务。全部完成后输出 DONE。请自主规划、执行、验证、迭代、反思，不得访问项目目录外的系统文件，不要中途请求确认或等待授权，失败就自己诊断修正并继续，直到任务通过验证。修改完自动提交，不要推送代码。',
     doneKeyword: 'DONE',
@@ -72,6 +74,10 @@ export function sanitizeTask(input) {
     }
     if (k === 'onDone' && v !== 'next') {
       out[k] = 'stop'
+      continue
+    }
+    if (k === 'sessionWaitTimeoutAction' && v !== 'stop') {
+      out[k] = 'send'
       continue
     }
     if (typeof base[k] === 'boolean') out[k] = Boolean(v)
@@ -132,8 +138,12 @@ export class ConfigStore {
     let raw = {}
     try {
       raw = JSON.parse(await readFile(this.file, 'utf-8'))
-    } catch {
-      /* 首次启动或损坏时回退缺省 */
+    } catch (err) {
+      // 文件存在但解析失败（损坏）：先保留现场备份再回退缺省，
+      // 避免随后的迁移保存直接覆盖原始数据，用户还有排查/抢救的机会
+      if (err && err.code !== 'ENOENT') {
+        await copyFile(this.file, `${this.file}.corrupt-${Date.now()}`).catch(() => {})
+      }
     }
     this.data = mergeConfig(defaultConfig(), raw)
     // v1 → v2 迁移：无任务时从扁平字段生成一个默认任务

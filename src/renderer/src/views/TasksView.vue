@@ -30,9 +30,12 @@ const blankTask = () => ({
   retryDelay: 120,
   maxRestarts: 0,
   sessionWaitLimitMin: 30,
+  sessionWaitTimeoutAction: 'send',
   prompt:
     '读取 .progress.md，继续完成未完成的任务。全部完成后输出 DONE。请自主规划、执行、验证、迭代、反思，不得访问项目目录外的系统文件，不要中途请求确认或等待授权，失败就自己诊断修正并继续，直到任务通过验证。修改完自动提交，不要推送代码。',
   doneKeyword: 'DONE',
+  onDone: 'stop',
+  maxRounds: 0,
   autoApprove: true,
   logFile: '',
   autoStart: false
@@ -75,6 +78,7 @@ const advancedDirty = computed(() => {
     num(t.retryDelay, 120) === 120 &&
     num(t.maxRestarts, 0) === 0 &&
     num(t.sessionWaitLimitMin, 30) === 30 &&
+    (t.sessionWaitTimeoutAction || 'send') === 'send' &&
     !(t.logFile || '').trim() &&
     t.autoApprove === true &&
     t.autoStart === false
@@ -115,13 +119,15 @@ function openEdit(t) {
   if (editing.value.sessionMode === 'id' && editing.value.project) querySessions()
 }
 
+const baseName = (p) => String(p || '').split(/[\\/]/).filter(Boolean).pop() || ''
+
 async function pickProject() {
-  const oldBase = editing.value.project ? editing.value.project.split('\\').filter(Boolean).pop() : ''
+  const oldBase = editing.value.project ? baseName(editing.value.project) : ''
   const r = await api.pickFolder(editing.value.project)
   if (r && !r.canceled) {
     editing.value.project = r.path
     // 名称未手动设置（或仍为旧目录名）时自动跟随新目录名
-    const newBase = r.path.split('\\').filter(Boolean).pop()
+    const newBase = baseName(r.path)
     if (!editing.value.name.trim() || editing.value.name === oldBase) editing.value.name = newBase
   }
 }
@@ -133,7 +139,7 @@ async function pickLogFile() {
 
 async function confirmSave() {
   const t = editing.value
-  if (!t.name.trim()) t.name = t.project ? t.project.split('\\').filter(Boolean).pop() : '未命名任务'
+  if (!t.name.trim()) t.name = t.project ? baseName(t.project) : '未命名任务'
   if (!t.project.trim()) {
     notify({ type: 'warning', message: '请先配置项目目录' })
     return
@@ -331,6 +337,42 @@ function restart(t) {
   api.daemonRestart(t.id)
 }
 
+// ---------- 会话等待期处置（仅 waiting 且会话闸门等待时可用） ----------
+
+const gateActingIds = reactive(new Set())
+
+/** 目标会话是否处于会话闸门等待（区别于额度恢复等错误策略等待） */
+const sessionGateWait = (t) => {
+  const d = daemonState(t.id)
+  return d.status === 'waiting' && !!d.sessionWaitStartedAt
+}
+
+/** 跳过等待：本轮不再等会话空闲，直接发送 */
+async function skipWait(t) {
+  if (gateActingIds.has(t.id)) return
+  gateActingIds.add(t.id)
+  try {
+    const r = await api.daemonSkipWait(t.id)
+    if (r && !r.ok) notify({ type: 'warning', message: `跳过等待失败：${r.error || '未知错误'}` })
+    else if (r?.ok) notify({ type: 'info', message: `「${t.name}」已跳过会话等待，本轮直接发送` })
+  } finally {
+    gateActingIds.delete(t.id)
+  }
+}
+
+/** 中断目标会话：打断 TUI/其他客户端正在执行的回合，闸门随后放行 */
+async function interruptSession(t) {
+  if (gateActingIds.has(t.id)) return
+  gateActingIds.add(t.id)
+  try {
+    const r = await api.daemonInterruptSession(t.id)
+    if (r && !r.ok) notify({ type: 'warning', message: `中断会话失败：${r.error || '未知错误'}` })
+    else if (r?.ok) notify({ type: 'info', message: `「${t.name}」已请求中断目标会话，等待其空闲后发送` })
+  } finally {
+    gateActingIds.delete(t.id)
+  }
+}
+
 async function openLog(t) {
   const r = await api.openLogFile(t.id)
   if (r && !r.ok) notify({ type: 'warning', message: r.error || '日志文件尚不存在' })
@@ -352,7 +394,10 @@ onBeforeUnmount(() => clearInterval(ticker))
 const allBusy = computed(() => tasks.value.length > 0 && tasks.value.every((t) => ['running', 'waiting'].includes(daemonState(t.id).status)))
 
 async function startAll() {
-  for (const t of tasks.value) await start(t)
+  // 并行启动（互不阻塞），失败统一汇总提示
+  const results = await Promise.allSettled(tasks.value.map((t) => start(t)))
+  const failed = results.filter((r) => r.status === 'rejected')
+  if (failed.length) notify({ type: 'danger', message: `${failed.length} 个任务启动请求失败` })
 }
 
 function stopAllTasks() {
@@ -380,7 +425,8 @@ function roundOrCountdown(t) {
 
 const waitLimitText = (t) => {
   const m = num(t.sessionWaitLimitMin, 30)
-  return m > 0 ? `会话等待 ≤${m} 分` : '会话等待不限'
+  const base = m > 0 ? `会话等待 ≤${m} 分` : '会话等待不限'
+  return t.sessionWaitTimeoutAction === 'stop' ? `${base} · 超时停止` : base
 }
 
 const modeText = (t) => (t.sessionMode === 'last' ? '最近会话' : t.sessionMode === 'id' ? '指定会话' : '新会话')
@@ -446,7 +492,7 @@ const VIEW_MODE_OPTIONS = [
             <span>{{ t.autoApprove ? '自动批准' : '手动审批' }}</span>
             <span>间隔 {{ t.retryDelay }}s</span>
             <span>{{ t.maxRestarts > 0 ? `上限 ${t.maxRestarts} 次` : '无限重启' }}</span>
-            <span v-if="num(t.sessionWaitLimitMin, 30) !== 30">{{ waitLimitText(t) }}</span>
+            <span v-if="num(t.sessionWaitLimitMin, 30) !== 30 || t.sessionWaitTimeoutAction === 'stop'">{{ waitLimitText(t) }}</span>
             <span v-if="t.model">
               模型 <strong>{{ t.model }}</strong
               >{{ (t.fallbackModels || []).length ? ` +${t.fallbackModels.length} 备` : '' }}
@@ -495,6 +541,29 @@ const VIEW_MODE_OPTIONS = [
                 @click="restart(t)"
               >重启</UxButton>
             </UxTooltip>
+            <!-- 会话闸门等待期的处置手段：打断目标回合 / 放弃等待直接发送 -->
+            <template v-if="sessionGateWait(t)">
+              <UxTooltip content="中断目标会话正在执行的回合（TUI/其他客户端），其空闲后自动发送本轮">
+                <UxButton
+                  size="sm"
+                  variant="ghost"
+                  icon="act-close"
+                  label="中断目标会话正在执行的回合"
+                  :loading="gateActingIds.has(t.id)"
+                  @click="interruptSession(t)"
+                >中断会话</UxButton>
+              </UxTooltip>
+              <UxTooltip content="本轮不再等待会话空闲，立即发送提示词（目标会话可能仍在运行）">
+                <UxButton
+                  size="sm"
+                  variant="ghost"
+                  icon="act-retry"
+                  label="跳过会话等待，本轮直接发送"
+                  :loading="gateActingIds.has(t.id)"
+                  @click="skipWait(t)"
+                >跳过等待</UxButton>
+              </UxTooltip>
+            </template>
             <span style="flex: 1"></span>
             <UxTooltip content="打开该任务的日志文件">
               <UxButton size="sm" variant="ghost" icon="act-external-link" label="打开日志文件" @click="openLog(t)" />
@@ -566,6 +635,28 @@ const VIEW_MODE_OPTIONS = [
                 @click="restart(t)"
               />
             </UxTooltip>
+            <template v-if="sessionGateWait(t)">
+              <UxTooltip content="中断目标会话正在执行的回合，其空闲后自动发送本轮">
+                <UxButton
+                  size="sm"
+                  variant="ghost"
+                  icon="act-close"
+                  label="中断目标会话正在执行的回合"
+                  :loading="gateActingIds.has(t.id)"
+                  @click="interruptSession(t)"
+                />
+              </UxTooltip>
+              <UxTooltip content="跳过会话等待，本轮直接发送">
+                <UxButton
+                  size="sm"
+                  variant="ghost"
+                  icon="act-retry"
+                  label="跳过会话等待，本轮直接发送"
+                  :loading="gateActingIds.has(t.id)"
+                  @click="skipWait(t)"
+                />
+              </UxTooltip>
+            </template>
             <UxTooltip content="编辑任务">
               <UxButton size="sm" variant="ghost" icon="act-edit" label="编辑任务" @click="openEdit(t)" />
             </UxTooltip>
@@ -809,6 +900,20 @@ const VIEW_MODE_OPTIONS = [
                 hint="0 = 不限；目标会话运行中或有排队消息时先等待空闲再发送"
                 @update:model-value="(v) => (editing.sessionWaitLimitMin = num(v, 30))"
               />
+            </div>
+            <div class="ol-form-row">
+              <span class="ol-form__label">等待超时后</span>
+              <UxSegmented
+                :model-value="editing.sessionWaitTimeoutAction === 'stop' ? 'stop' : 'send'"
+                size="sm"
+                aria-label="会话等待超时处置"
+                :options="[
+                  { value: 'send', label: '继续发送并告警' },
+                  { value: 'stop', label: '停止守护' }
+                ]"
+                @update:model-value="(v) => (editing.sessionWaitTimeoutAction = v)"
+              />
+              <span class="ol-hint">目标会话超过等待上限仍忙碌时的处置方式</span>
             </div>
             <div class="ol-form-row">
               <UxInput v-model="editing.logFile" label="日志文件" placeholder="留空 = <项目目录>\keep-alive.log" />
