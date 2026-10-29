@@ -17,6 +17,9 @@ jobs:
   build:
     name: Build Windows installer
     runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -36,9 +39,12 @@ jobs:
       - name: Verify tag matches package.json version
         if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
+        env:
+          # ref 名经 env 中转，避免直接插值进 shell 的注入面
+          TAG_NAME: ${{ github.ref_name }}
         run: |
           $pkg = (Get-Content package.json -Raw | ConvertFrom-Json).version
-          $tag = '${{ github.ref_name }}'.TrimStart('v')
+          $tag = $env:TAG_NAME.TrimStart('v')
           if ($pkg -ne $tag) {
             throw "Tag v$tag 与 package.json 版本 $pkg 不一致，请先升级版本号再打 tag"
           }

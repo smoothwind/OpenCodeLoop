@@ -49,8 +49,26 @@ export async function processName(pid) {
   return m ? m[1] : null
 }
 
+/** 查询进程命令行（PowerShell CIM；非 Windows / 查询失败返回空串） */
+async function processCommandLine(pid) {
+  if (process.platform !== 'win32') return ''
+  const r = await run(
+    'powershell.exe',
+    [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      `(Get-CimInstance Win32_Process -Filter "ProcessId=${Number(pid)}").CommandLine`
+    ],
+    { timeout: 8000 }
+  )
+  return String(r.stdout || '').trim()
+}
+
 /**
- * 清理孤儿：仅终止进程名以 opencode 开头的残留进程（pid 被复用时不会误杀）。
+ * 清理孤儿：进程名以 opencode 开头直接终止（pid 复用时不会误杀）；
+ * 经 cmd/PowerShell shim 启动的守护记录的是 shell pid，需命令行确认含 opencode
+ * 才终止进程树（防止 pid 复用误杀无关 shell）。
  * 返回被清理的条目列表。
  */
 export async function reapOrphans(file, { onLog } = {}) {
@@ -63,7 +81,12 @@ export async function reapOrphans(file, { onLog } = {}) {
   for (const o of list) {
     try {
       const name = await processName(o.pid)
-      if (name && /^opencode/i.test(name)) {
+      if (!name) continue
+      let isOurs = /^opencode/i.test(name)
+      if (!isOurs && /^(cmd|powershell)\.exe$/i.test(name)) {
+        isOurs = /opencode/i.test(await processCommandLine(o.pid))
+      }
+      if (isOurs) {
         await killTree(o.pid)
         reaped.push({ ...o, name })
         onLog?.(`清理孤儿守护进程 ${name}（pid ${o.pid}，任务「${o.taskName || '?'}」）`)

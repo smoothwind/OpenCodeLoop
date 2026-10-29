@@ -130,13 +130,27 @@ function toastUpdateResult(r) {
 const nowTick = ref(Date.now())
 let ticker = null
 
+// 任何守护活跃时才需要每秒刷新倒计时（与任务页 ticker 同策略，空闲时零渲染开销）
+const anyDaemonBusy = computed(() =>
+  tasks.value.some((t) => ['running', 'waiting'].includes(daemonState(t.id).status))
+)
+
+/** 初始化失败（配置读取异常）后的手动重试入口 */
+async function retryInit() {
+  store.initError = ''
+  await init()
+}
+
+let offUpdatePush = null
+
 onMounted(async () => {
   await init()
   refreshAttach()
-  ticker = setInterval(() => (nowTick.value = Date.now()), 1000)
-  // 主进程启动自检发现新版本时推送提醒
-  api.onUpdateAvailable((info) => {
-    if (info && store.update.result !== info) store.update.result = info
+  ticker = setInterval(() => {
+    if (anyDaemonBusy.value) nowTick.value = Date.now()
+  }, 1000)
+  // 主进程启动自检发现新版本时推送提醒（状态写入在 store.init 的订阅里，这里只负责 toast）
+  offUpdatePush = api.onUpdateAvailable((info) => {
     if (info?.status === 'available') toastUpdateResult(info)
   })
 })
@@ -144,6 +158,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   clearInterval(ticker)
   offMenu?.()
+  offUpdatePush?.()
   disposeListeners()
   stopWatch()
 })
@@ -298,7 +313,18 @@ const paneLog = computed(() => ({
         <component :is="viewComp" v-else class="ol-split" />
 
         <div v-if="!store.ready" class="ol-empty-wrap">
-          <span class="ol-hint">正在加载配置…</span>
+          <template v-if="store.initError">
+            <span class="ol-hint">初始化失败：{{ store.initError }}</span>
+            <UxButton
+              size="sm"
+              variant="secondary"
+              icon="act-retry"
+              label="重试初始化"
+              style="margin-top: var(--ux-sp-3)"
+              @click="retryInit"
+            >重试</UxButton>
+          </template>
+          <span v-else class="ol-hint">正在加载配置…</span>
         </div>
       </div>
     </div>
@@ -312,7 +338,6 @@ const paneLog = computed(() => ({
         <template #right>
           <span class="ol-status">
             {{ taskSummary }}
-            <template v-if="store.config?.autoApprove !== undefined"></template>
             · v{{ __APP_VERSION__ }}
           </span>
         </template>

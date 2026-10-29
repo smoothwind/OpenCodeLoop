@@ -104,7 +104,13 @@ function compareVersion(a, b) {
  */
 function resolveElectronDist() {
   const pkgPath = join(root, 'node_modules', 'electron', 'package.json')
-  const wanted = existsSync(pkgPath) ? JSON.parse(readFileSync(pkgPath, 'utf-8')).version : null
+  let wanted = null
+  try {
+    wanted = existsSync(pkgPath) ? JSON.parse(readFileSync(pkgPath, 'utf-8')).version : null
+  } catch {
+    // package.json 损坏时按未知版本处理，走缓存/下载兜底
+    wanted = null
+  }
   const installed = join(root, 'node_modules', 'electron', 'dist')
 
   if (existsSync(join(installed, 'electron.exe'))) {
@@ -137,7 +143,17 @@ function resolveElectronDist() {
     : candidates[0]
 
   if (wanted && picked.version !== wanted) {
-    log(`警告：未命中 electron ${wanted}，改用缓存 ${picked.version}（${picked.zip}）`)
+    // 版本不匹配 = 未经测试的运行时组合，产物版本与 lockfile 不一致；CI 下无人看日志，
+    // 静默降级会让错误组合直接发布。确需放行时显式设置 ALLOW_ELECTRON_MISMATCH=1。
+    const msg = `缓存中没有 electron ${wanted}（node_modules/electron 版本），只有 ${candidates
+      .slice(0, 3)
+      .map((c) => `v${c.version}`)
+      .join(' / ')}；拒绝用不匹配版本打包`
+    if (process.env.ALLOW_ELECTRON_MISMATCH === '1') {
+      log(`警告：${msg}（ALLOW_ELECTRON_MISMATCH=1 已放行）`)
+    } else {
+      fail(`${msg}。修复：npm install 重装 electron，或清理 %LOCALAPPDATA%\\electron\\Cache，或设置 ALLOW_ELECTRON_MISMATCH=1`)
+    }
   }
 
   const dest = join(tmp, `opencodeloop-electron-${picked.version}`)
@@ -166,13 +182,14 @@ function prepareOutput() {
   return { dist, staging, network }
 }
 
-/** 把暂存目录里的安装包回拷到 dist/，文件名空格转连字符（与 latest.yml 一致） */
+/** 把暂存目录里的安装包回拷到 dist/，文件名空格转连字符（与 latest.yml 一致）。
+ *  过滤规则与本地分支一致：仅安装包 / blockmap / latest.yml。 */
 function copyArtifacts(staging, dist) {
   mkdirSync(dist, { recursive: true })
   const copied = []
   for (const entry of readdirSync(staging, { withFileTypes: true })) {
     if (!entry.isFile()) continue
-    if (entry.name === 'builder-debug.yml') continue
+    if (!(entry.name.endsWith('.exe') || entry.name.endsWith('.blockmap') || entry.name === 'latest.yml')) continue
     const target = join(dist, entry.name.replace(/ /g, '-'))
     copyFileSync(join(staging, entry.name), target)
     copied.push(target)

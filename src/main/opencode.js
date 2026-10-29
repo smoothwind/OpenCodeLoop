@@ -7,7 +7,7 @@
  */
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { access, readFile, writeFile, rename, rm, stat } from 'node:fs/promises'
+import { access, copyFile, readFile, writeFile, rename, rm, stat } from 'node:fs/promises'
 import { join, isAbsolute, dirname } from 'node:path'
 
 const EXE_RE =
@@ -54,9 +54,6 @@ export async function resolveBinary(configured) {
   const cfg = String(configured || '').trim()
   if (cfg && isAbsolute(cfg)) {
     return existsSync(cfg) ? { path: cfg, direct: true } : null
-  }
-  if (cfg && /\.(exe|cmd|bat|ps1)$/i.test(cfg)) {
-    if (isAbsolute(cfg)) return existsSync(cfg) ? { path: cfg, direct: true } : null
   }
   if (process.platform === 'win32') {
     const { stdout } = await run('where.exe', ['opencode'])
@@ -435,7 +432,8 @@ function firstLineOfSafe(text) {
   return String(text || '').trim().split(/\r?\n/)[0] || ''
 }
 
-/** 解析 `opencode session list` 输出：优先 JSON，退化为逐行正则提取会话 id */export function parseSessionList(text) {
+/** 解析 `opencode session list` 输出：优先 JSON，退化为逐行正则提取会话 id */
+export function parseSessionList(text) {
   const raw = String(text || '')
   const trimmed = raw.trim()
   if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
@@ -600,8 +598,39 @@ export function stripJsonComments(text) {
     out += c
     i++
   }
-  // 宽松去除尾逗号（],} 前的逗号，仅限重复空白场景）
-  return out.replace(/,(\s*[}\]])/g, '$1')
+  // 宽松去除尾逗号（],} 前的逗号）——字符串感知，避免误伤字符串值内的 ,] / ,} 序列
+  return stripTrailingCommas(out)
+}
+
+/** 字符串感知的尾逗号去除（正则版不感知字符串，会把 "a,]" 之类的值改坏） */
+function stripTrailingCommas(src) {
+  let out = ''
+  let inStr = false
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i]
+    if (inStr) {
+      out += c
+      if (c === '\\' && i + 1 < src.length) {
+        out += src[i + 1]
+        i++
+        continue
+      }
+      if (c === '"') inStr = false
+      continue
+    }
+    if (c === '"') {
+      inStr = true
+      out += c
+      continue
+    }
+    if (c === ',') {
+      let j = i + 1
+      while (j < src.length && /\s/.test(src[j])) j++
+      if (src[j] === '}' || src[j] === ']') continue
+    }
+    out += c
+  }
+  return out
 }
 
 async function exists(p) {
@@ -663,6 +692,18 @@ export async function writeProjectPermission(project, permission) {
   const cfg = await readProjectConfig(project)
   if (cfg.parseError) {
     throw new Error(`配置文件解析失败，拒绝写入：${cfg.parseError}`)
+  }
+  // 原文件带注释（JSONC）时先备份：回写会规范化为纯 JSON，注释与排版无法保留，
+  // 留一份 .bak 供用户找回手工注释
+  try {
+    const raw = await readFile(cfg.file, 'utf-8')
+    try {
+      JSON.parse(raw)
+    } catch {
+      if (raw.trim()) await copyFile(cfg.file, `${cfg.file}.bak`).catch(() => {})
+    }
+  } catch {
+    /* 原文件读不到时无需备份 */
   }
   const next = { ...(cfg.data || {}), permission: normalizePermission(permission) }
   await atomicWrite(cfg.file, JSON.stringify(next, null, 2) + '\n')

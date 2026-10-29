@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { UxButton, UxChip, UxDropdown, UxDialog, UxIcon, UxInput, notify } from '@ux/components'
 import { store, tasks, currentTask, selectTask, saveTaskDebounced, saveTask } from '../store'
 
@@ -47,7 +47,8 @@ function applyToTask(text) {
 
 function setDoneKeyword(v) {
   if (!currentTask.value) return
-  saveTask({ ...currentTask.value, doneKeyword: v.trim() })
+  // 防抖保存：完成标记输入框逐键触发，避免每次击键都全量写盘 + 主进程重建托盘/菜单
+  saveTaskDebounced({ ...currentTask.value, doneKeyword: v.trim() })
 }
 
 function openSave() {
@@ -60,7 +61,7 @@ function confirmSave() {
   const name = presetName.value.trim()
   const text = draftText.value
   if (!name || !text.trim()) {
-    notify({ type: 'warning', message: '请填写预设名称' })
+    notify({ type: 'warning', message: '请填写预设名称和内容' })
     return
   }
   const next = [...store.config.promptPresets.filter((p) => p.name !== name), { name, text }]
@@ -72,10 +73,6 @@ function confirmSave() {
 const charCount = computed(() => (currentTask.value?.prompt || '').length)
 
 const VARS_HINT = '支持变量：{{project}}（项目目录）、{{date}}、{{time}}。提示词随每轮重启自动生效，无需停止守护。'
-
-// 切换任务时让输入框重渲染（避免残留上一任务内容）
-const taskKey = computed(() => currentTask.value?.id || 'none')
-watch(taskKey, () => {})
 </script>
 
 <template>
@@ -100,7 +97,7 @@ watch(taskKey, () => {})
         </h3>
 
         <textarea
-          :key="taskKey"
+          :key="currentTask?.id || 'none'"
           class="ol-textarea"
           :value="currentTask.prompt"
           spellcheck="false"

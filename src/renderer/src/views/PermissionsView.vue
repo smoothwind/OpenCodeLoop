@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { UxButton, UxChip, UxIcon, UxInput, UxSegmented, UxTooltip, notify } from '@ux/components'
 import { ErrorState } from '@ux/patterns'
 import { store, tasks, currentTask, selectTask, saveTask, setConfig } from '../store'
@@ -96,6 +96,9 @@ async function load() {
     perm.bash = Object.entries(p.bash || {}).map(([pattern, level]) => ({ pattern, level }))
     loadedFor.value = currentTask.value.id
     loaded.value = true
+  } catch (err) {
+    perm.error = String(err?.message || err)
+    loaded.value = true
   } finally {
     perm.loading = false
   }
@@ -107,18 +110,24 @@ async function save() {
   if (droppedDup > 0) {
     notify({ type: 'warning', message: `存在 ${droppedDup} 条重复模式，保存时以靠后的规则为准` })
   }
-  const r = await api.writePermissions(currentTask.value.id, permission)
-  if (r?.ok) {
-    notify({ type: 'success', message: `已写入 ${r.file}` })
-    await load()
-  } else {
-    notify({ type: 'danger', message: r?.error || '写入失败' })
+  try {
+    const r = await api.writePermissions(currentTask.value.id, permission)
+    if (r?.ok) {
+      notify({ type: 'success', message: `已写入 ${r.file}` })
+      await load()
+    } else {
+      notify({ type: 'danger', message: r?.error || '写入失败' })
+    }
+  } catch (err) {
+    notify({ type: 'danger', message: `写入失败：${String(err?.message || err)}` })
   }
 }
 
 function setApproval(auto) {
   if (!currentTask.value) return
-  saveTask({ ...currentTask.value, autoApprove: auto })
+  saveTask({ ...currentTask.value, autoApprove: auto }).catch((err) =>
+    notify({ type: 'danger', message: `保存失败：${String(err?.message || err)}` })
+  )
   notify({
     type: auto ? 'success' : 'warning',
     message: auto ? '已切换为自动批准（--auto）' : '已切换为手动审批——无人值守下会卡在授权等待'
@@ -135,7 +144,14 @@ function removeRule(i) {
 
 const fileName = computed(() => perm.file || '（任务未配置项目目录）')
 
-onMounted(load)
+// 页内切换任务 / 配置加载完成后自动（重）加载对应项目的权限配置
+watch(
+  () => currentTask.value?.id,
+  (id) => {
+    if (id && loadedFor.value !== id) load()
+  },
+  { immediate: true }
+)
 </script>
 
 <template>

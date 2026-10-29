@@ -48,7 +48,8 @@ onMounted(() => {
   refreshAttach()
   pollTimer = setInterval(() => {
     if (document.hidden) return
-    if (daemonActive.value && store.view === 'sessions') refreshSessions()
+    // 组件仅挂载在会话视图下（视图切换即卸载），无需再判断 store.view
+    if (daemonActive.value) refreshSessions()
   }, 15000)
 })
 
@@ -177,7 +178,8 @@ async function restartAttachService() {
     return
   }
   restartLoading.value = true
-  notify({ type: 'info', message: '正在重启 attach 服务（结束旧进程 → 拉起 opencode serve → 健康检查）…', duration: 0 })
+  // 进行中提示用有限时长（toast API 无编程关闭；按钮 loading 态已足够表达进行中）
+  notify({ type: 'info', message: '正在重启 attach 服务（结束旧进程 → 拉起 opencode serve → 健康检查）…', duration: 8000 })
   try {
     const r = await api.attachRestart(currentTask.value.id)
     if (r?.ok) {
@@ -188,6 +190,8 @@ async function restartAttachService() {
     } else {
       notify({ type: 'danger', message: r?.message || '重启失败' })
     }
+  } catch (err) {
+    notify({ type: 'danger', message: `重启 attach 服务失败：${String(err?.message || err)}` })
   } finally {
     restartLoading.value = false
     refreshAttach()
@@ -219,7 +223,7 @@ function copyId(id) {
 
 function fmtTime(t) {
   if (!t) return ''
-  const d = new Date(typeof t === 'number' ? t : t)
+  const d = new Date(t)
   if (Number.isNaN(d.getTime())) return ''
   return d.toLocaleString()
 }

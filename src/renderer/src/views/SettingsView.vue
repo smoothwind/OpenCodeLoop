@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { UxButton, UxChip, UxIcon, UxInput, UxSegmented, UxTooltip, notify } from '@ux/components'
 import { store, setConfig, checkUpdate } from '../store'
 import { api } from '../api'
@@ -19,15 +19,23 @@ const envLoading = ref(false)
 const envDetectedAt = ref(null)
 
 async function detectEnv() {
+  // 去重：路径未变化且已有结果时跳过（onMounted 与 config 加载触发的 watch 只跑一次）
+  const path = store.config?.opencodePath || 'opencode'
+  if (path === envLastPath && envItems.value.length) return
+  envLastPath = path
   envLoading.value = true
   try {
     const r = await api.envDetect()
     envItems.value = r?.items || []
     envDetectedAt.value = r?.detectedAt || null
+  } catch (err) {
+    notify({ type: 'danger', message: `环境检测失败：${String(err?.message || err)}` })
   } finally {
     envLoading.value = false
   }
 }
+
+let envLastPath = null
 
 // opencode 路径修改后自动重检（防抖）
 let envDebounce = null
@@ -38,6 +46,8 @@ watch(
     envDebounce = setTimeout(detectEnv, 800)
   }
 )
+
+onBeforeUnmount(() => clearTimeout(envDebounce))
 
 function copyText(text) {
   navigator.clipboard?.writeText(text)
@@ -69,10 +79,14 @@ const dataDir = ref({ dir: '', portable: false })
 const loginBoot = ref(false)
 
 async function toggleLogin(v) {
-  const ok = await api.setLoginItem(v)
-  loginBoot.value = ok
-  setConfig({ loginAtBoot: ok })
-  notify({ type: ok ? 'success' : 'warning', message: ok ? '已开启：开机自动启动（托盘隐藏运行）' : '已关闭开机自启' })
+  try {
+    const ok = await api.setLoginItem(v)
+    loginBoot.value = ok
+    await setConfig({ loginAtBoot: ok })
+    notify({ type: ok ? 'success' : 'warning', message: ok ? '已开启：开机自动启动（托盘隐藏运行）' : '已关闭开机自启' })
+  } catch (err) {
+    notify({ type: 'danger', message: `设置开机自启失败：${String(err?.message || err)}` })
+  }
 }
 
 // ---------- opencode 路径文件选择 ----------
@@ -101,9 +115,13 @@ async function openRelease() {
 
 onMounted(async () => {
   detectEnv()
-  const d = await api.dataDir()
-  if (d) dataDir.value = d
-  loginBoot.value = await api.getLoginItem()
+  try {
+    const d = await api.dataDir()
+    if (d) dataDir.value = d
+    loginBoot.value = await api.getLoginItem()
+  } catch {
+    /* 数据目录/登录项读取失败保持缺省展示 */
+  }
 })
 </script>
 
