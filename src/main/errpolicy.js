@@ -29,6 +29,13 @@ export const KIND_TEXT = {
   unknown: '未知错误'
 }
 
+/** 模型受限原因（贴合「限制已解除 / 已切换备选」句式，仅额度/限流/鉴权会产生冷却） */
+export const LIMIT_TEXT = {
+  quota: '额度限制',
+  ratelimit: '限流限制',
+  auth: '鉴权问题'
+}
+
 // ---------- 恢复时间解析 ----------
 
 const UNIT_MS = {
@@ -287,6 +294,27 @@ export function planRecovery(cls, opts = {}) {
     default:
       return base
   }
+}
+
+// ---------- 模型受限冷却 ----------
+
+/** 无明确恢复时间时，受限模型的探活间隔：到点自动重试，探到恢复即切回主力 */
+export const MODEL_PROBE_MS = 10 * 60 * 1000
+/** 鉴权类问题通常需人工处理：探活间隔更长，避免频繁无效请求 */
+export const AUTH_PROBE_MS = 30 * 60 * 1000
+
+/**
+ * 失败分类 → 该模型的不可用截止时间（epoch ms）；null = 无需冷却。
+ * 仅额度/限流/鉴权类错误会让模型进入冷却：优先使用错误文案解析出的恢复时间，
+ * 无法解析时按探活间隔稍后再试（探到恢复即自动切回主力模型）。
+ */
+export function cooldownUntil(cls, now = Date.now(), probeMs = MODEL_PROBE_MS) {
+  const kind = cls?.kind
+  if (kind !== 'quota' && kind !== 'ratelimit' && kind !== 'auth') return null
+  const resetAt = Number(cls?.resetAt)
+  if (Number.isFinite(resetAt) && resetAt > now) return resetAt
+  const probe = Number.isFinite(probeMs) ? Math.max(1000, probeMs) : MODEL_PROBE_MS
+  return now + (kind === 'auth' ? Math.max(probe, AUTH_PROBE_MS) : probe)
 }
 
 // ---------- 展示辅助 ----------

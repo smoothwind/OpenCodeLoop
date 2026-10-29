@@ -91,6 +91,7 @@ export function daemonState(taskId) {
       pid: null,
       model: '',
       actualModel: '',
+      modelNote: '',
       sessionId: ''
     }
   )

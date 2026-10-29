@@ -6,7 +6,7 @@ import {
   initialState,
   Daemon,
   effectiveModels,
-  pickModel,
+  selectModel,
   parseRunEvent
 } from '../src/main/daemon.js'
 import { taskDefaults, newTaskId, sanitizeTask } from '../src/main/store.js'
@@ -88,11 +88,47 @@ describe('模型链（主力 + 可选回退）', () => {
     expect(effectiveModels({})).toEqual([])
   })
 
-  it('pickModel：失败顺延、上限锁定末位', () => {
-    expect(pickModel(cfg(), 0)).toBe('zhipu/glm-5.3-flash')
-    expect(pickModel(cfg(), 1)).toBe('zhipu/glm-4.7')
-    expect(pickModel(cfg(), 2)).toBe('local/qwen3')
-    expect(pickModel(cfg(), 9)).toBe('local/qwen3')
+  it('selectModel：主力优先，受限后降级到未受限备选', () => {
+    const now = 1000
+    expect(selectModel(cfg(), new Map(), now)).toEqual({
+      model: 'zhipu/glm-5.3-flash',
+      index: 0,
+      blockedUntil: null
+    })
+    const cd = new Map([['zhipu/glm-5.3-flash', now + 5000]])
+    expect(selectModel(cfg(), cd, now)).toEqual({
+      model: 'zhipu/glm-4.7',
+      index: 1,
+      blockedUntil: null
+    })
+    // 主力冷却到期（额度/限流解封）→ 自动回到主力
+    expect(selectModel(cfg(), cd, now + 5000).model).toBe('zhipu/glm-5.3-flash')
+    expect(selectModel(cfg(), cd, now + 5000).index).toBe(0)
+  })
+
+  it('selectModel：全部受限时选最早解封的一个（提前试探）', () => {
+    const now = 1000
+    const cd = new Map([
+      ['zhipu/glm-5.3-flash', now + 9000],
+      ['zhipu/glm-4.7', now + 3000],
+      ['local/qwen3', now + 6000]
+    ])
+    const sel = selectModel(cfg(), cd, now)
+    expect(sel.model).toBe('zhipu/glm-4.7')
+    expect(sel.index).toBe(1)
+    expect(sel.blockedUntil).toBe(now + 3000)
+  })
+
+  it('selectModel：连续失败顺延时优先备选，但首选受限则回到链首可用模型', () => {
+    const now = 1000
+    expect(selectModel(cfg(), new Map(), now, 1).model).toBe('zhipu/glm-4.7')
+    const cd = new Map([['zhipu/glm-4.7', now + 5000]])
+    expect(selectModel(cfg(), cd, now, 1).model).toBe('zhipu/glm-5.3-flash')
+  })
+
+  it('selectModel：无模型时返回空模型；普通对象 cooldowns 同样可用', () => {
+    expect(selectModel({}, new Map(), 1000)).toEqual({ model: '', index: -1, blockedUntil: null })
+    expect(selectModel(cfg(), { 'zhipu/glm-5.3-flash': 9999 }, 1000).model).toBe('zhipu/glm-4.7')
   })
 
   it('无模型时不传 -m', () => {
@@ -684,6 +720,73 @@ describe('错误分级处理策略（额度恢复 / 鉴权停止）', () => {
     expect(d.state.model).toBe('b/fb1')
     expect(d.state.errorKind).toBe('quota')
   }, 40000)
+
+  it('主力额度受限切备选，冷却到期自动切回主力', async () => {
+    const { mkdtemp, writeFile, readFile } = await import('node:fs/promises')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const proj = await mkdtemp(join(tmpdir(), 'ocl-quota3-'))
+    const fake = join(proj, 'fake.cmd')
+    // 第一轮：主力额度不足（无恢复时间 → 按探活间隔冷却）
+    // 第二轮：备选模型跑一轮（耗时约 2s，确保主力冷却已到期）
+    // 第三轮：冷却到期 → 应自动回到主力
+    await writeFile(
+      fake,
+      [
+        '@echo off',
+        'echo %* >> models.txt',
+        'if exist first.flag goto second',
+        'type nul > first.flag',
+        'echo 模型请求额度不足，请稍后重试 1>&2',
+        'exit /b 1',
+        ':second',
+        'if exist second.flag goto later',
+        'type nul > second.flag',
+        'ping -n 3 127.0.0.1 >nul',
+        'echo DONE',
+        'exit /b 0',
+        ':later',
+        'echo DONE',
+        'exit /b 0'
+      ].join('\r\n'),
+      'utf-8'
+    )
+    // 探活间隔 2.5s：第二轮（约 1.1s 后）仍在冷却期 → 备选；第三轮（约 4s 后）已解封 → 主力
+    const d = new Daemon({ modelProbeMs: 2500 })
+    const cfg = {
+      ...taskDefaults(),
+      id: 't',
+      project: proj,
+      attachUrl: '',
+      sessionMode: 'new',
+      prompt: 'x',
+      doneKeyword: 'DONE',
+      model: 'a/primary',
+      fallbackModels: ['b/fb1'],
+      retryDelay: 1,
+      onDone: 'next',
+      maxRounds: 3,
+      logFile: join(proj, 'l.log')
+    }
+    await d.start(cfg, { path: fake, direct: false })
+    const status = await waitDone(d, 60000)
+    expect(status).toBe('done')
+    expect(d.state.runs).toBe(3)
+    const used = (await readFile(join(proj, 'models.txt'), 'utf-8'))
+      .trim()
+      .split(/\r?\n/)
+      .filter(Boolean)
+    expect(used).toHaveLength(3)
+    expect(used[0]).toContain('a/primary')
+    expect(used[1]).toContain('b/fb1')
+    // 冷却到期后自动切回主力（而不是一直停在备选）
+    expect(used[2]).toContain('a/primary')
+    const titles = d.tail(120).map((l) => l.title)
+    expect(titles.some((t) => t.includes('已切换备选'))).toBe(true)
+    expect(titles.some((t) => t.includes('自动切回主力模型'))).toBe(true)
+    // 切回后不再残留受限提示
+    expect(d.state.modelNote).toBe('')
+  }, 60000)
 
   it('鉴权失败且无备选 → 守护明确停止并给出原因', async () => {
     const { mkdtemp, writeFile } = await import('node:fs/promises')

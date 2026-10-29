@@ -512,6 +512,11 @@ const VIEW_MODE_OPTIONS = [
             <span :title="daemonState(t.id).actualModel || daemonState(t.id).model || t.model || '尚未探测到（首轮结束后显示实际模型）'">
               模型 <strong class="ol-tlist__path">{{ daemonState(t.id).actualModel || daemonState(t.id).model || t.model || '—' }}</strong>
             </span>
+            <span
+              v-if="daemonState(t.id).modelNote"
+              class="ol-warn ol-task__note"
+              :title="daemonState(t.id).modelNote"
+            >{{ daemonState(t.id).modelNote }}</span>
           </div>
           <div class="ol-task__actions" @click.stop>
             <UxButton
@@ -805,7 +810,7 @@ const VIEW_MODE_OPTIONS = [
             </template>
             <div>
               <span class="ol-hint" style="display: block; margin-bottom: 4px">
-                可选模型（每行一个，主力连续失败后按序顺延，恢复后自动回到主力）
+                可选模型（每行一个，主力额度不足/限流/鉴权失败后按序顺延；解封后自动切回主力）
               </span>
               <textarea
                 class="ol-textarea"

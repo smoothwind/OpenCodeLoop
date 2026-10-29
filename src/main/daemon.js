@@ -20,7 +20,7 @@ import { createWriteStream } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
 import { StringDecoder } from 'node:string_decoder'
 import { dirname, join } from 'node:path'
-import { classifyError, planRecovery, KIND_TEXT, formatClock, formatWait } from './errpolicy.js'
+import { classifyError, planRecovery, cooldownUntil, KIND_TEXT, LIMIT_TEXT, formatClock, formatWait, MODEL_PROBE_MS } from './errpolicy.js'
 import { waitLimitMs, timeoutAction, sessionBusy, busyReason, outcomeText } from './sessiongate.js'
 
 /** 日志文件缓冲写入流：集中管理打开/写/关，替代逐块 appendFile */
@@ -64,7 +64,8 @@ export class LogFileWriter {
 
 /**
  * 模型链：主力在前，可选模型按序跟随（去重去空）。
- * 轮换策略：连续失败 N 次用链中第 min(N, len-1) 个——主力始终优先，回退稳定后不再摇摆。
+ * 选择策略（见 selectModel）：主力优先；失败进入冷却后按链顺序降级到未受限的备选，
+ * 冷却到期（额度/限流解封）后自动切回主力。
  */
 export function effectiveModels(cfg) {
   const list = [cfg?.model, ...(cfg?.fallbackModels || [])]
@@ -73,10 +74,33 @@ export function effectiveModels(cfg) {
   return [...new Set(list)]
 }
 
-export function pickModel(cfg, failStreak) {
+/**
+ * 本轮模型选择。
+ * cooldowns：模型 → 不可用截止时间（epoch ms，额度/限流/鉴权失败时写入）。
+ * preferIndex：优先尝试的链位置（连续失败顺延）；该模型受限时回到链首寻找可用模型。
+ * - 主力未受限时永远优先主力（自动切回主力的核心规则）
+ * - 首选受限 → 链首起找第一个未受限的模型
+ * - 全部受限时返回最早解封的一个：提前试探，避免整条模型链停摆
+ * 返回值 { model, index, blockedUntil }，blockedUntil 非空表示本次选中的模型仍在冷却。
+ */
+export function selectModel(cfg, cooldowns = new Map(), now = Date.now(), preferIndex = 0) {
   const models = effectiveModels(cfg)
-  if (!models.length) return ''
-  return models[Math.min(Math.max(failStreak, 0), models.length - 1)]
+  if (!models.length) return { model: '', index: -1, blockedUntil: null }
+  const untilOf = (m) => {
+    const v = cooldowns instanceof Map ? cooldowns.get(m) : cooldowns?.[m]
+    const n = Number(v) || 0
+    return n > now ? n : 0
+  }
+  const start = Math.min(Math.max(Number(preferIndex) || 0, 0), models.length - 1)
+  if (!untilOf(models[start])) return { model: models[start], index: start, blockedUntil: null }
+  for (let i = 0; i < models.length; i++) {
+    if (i !== start && !untilOf(models[i])) return { model: models[i], index: i, blockedUntil: null }
+  }
+  let best = 0
+  for (let i = 1; i < models.length; i++) {
+    if (untilOf(models[i]) < untilOf(models[best])) best = i
+  }
+  return { model: models[best], index: best, blockedUntil: untilOf(models[best]) }
 }
 
 /**
@@ -259,6 +283,8 @@ export function initialState() {
     pid: null,
     /** 本轮实际使用的模型（配置解析值，轮启动设置） */
     model: '',
+    /** 模型切换说明（主力受限/恢复时写入，供界面展示） */
+    modelNote: '',
     /** 实际模型（运行时探测所得，如会话默认解析结果；跨轮保留） */
     actualModel: '',
     /** 本轮实际写入的 opencode 会话 ID（从事件流捕获） */
@@ -283,6 +309,11 @@ export class Daemon extends EventEmitter {
     this.releaseSession = typeof opts.releaseSession === 'function' ? opts.releaseSession : null
     /** 错误策略：等待恢复的上限（防错误文案解析偏差导致无限长等） */
     this.policyMaxWaitMs = Number.isFinite(opts.policyMaxWaitMs) ? opts.policyMaxWaitMs : 24 * 3600 * 1000
+    /** 模型受限探活间隔：额度/限流无明确恢复时间时，到点自动重试受限模型（默认 10 分钟） */
+    this.modelProbeMs = Number.isFinite(opts.modelProbeMs) ? Math.max(1000, opts.modelProbeMs) : MODEL_PROBE_MS
+    /** 模型受限冷却：模型 → 不可用截止时间；及受限原因（错误分类 kind） */
+    this._modelCooldowns = new Map()
+    this._modelCooldownKind = new Map()
     /** 已持有租约/本轮使用的会话（停止时据此中断服务器端执行） */
     this._leasedSession = ''
     this._roundSession = ''
@@ -363,6 +394,8 @@ export class Daemon extends EventEmitter {
       this.restartCount = 0
       this._failStreak = 0
       this._nextLabel = ''
+      this._modelCooldowns = new Map()
+      this._modelCooldownKind = new Map()
       this._svcFixes = 0
       this._svcPort = null
       this._abortGate()
@@ -799,11 +832,24 @@ export class Daemon extends EventEmitter {
         // 错误分类 → 分级处理策略（额度等恢复、鉴权停止、限流退避、常规重启）
         const cls = classifyError(this._errBuf)
         const models = effectiveModels(this.cfg)
-        const hasFallback = models.length > 1 && (this._failStreak || 0) < models.length - 1
+        const roundModel = this.state.model || models[0] || ''
+        const now = Date.now()
+        // 受限模型进入冷却：额度/限流/鉴权失败后，到点自动重试（探到恢复即切回主力）
+        if (models.length > 1) {
+          const until = cooldownUntil(cls, now, this.modelProbeMs)
+          if (until) {
+            this._modelCooldowns.set(roundModel, until)
+            this._modelCooldownKind.set(roundModel, cls.kind)
+          }
+        }
+        // 备选可用性：链中还有当前未受限的其他模型（冷却中的模型只排队，不算可用）
+        const hasFallback = models.some(
+          (m) => m !== roundModel && (this._modelCooldowns.get(m) || 0) <= now
+        )
         const plan = planRecovery(cls, {
           hasFallback,
           retryDelaySec: this.cfg.retryDelay,
-          now: Date.now(),
+          now,
           maxWaitMs: this.policyMaxWaitMs
         })
         this.state.errorKind = cls.kind
@@ -824,14 +870,21 @@ export class Daemon extends EventEmitter {
 
         if (plan.action === 'wait') {
           // 额度/限流窗口：等恢复时间到达后自动拉起，不消耗重启次数
+          let waitUntil = plan.until
+          // 其他模型更早解封时按更早的时刻重试（如备选受限更久，主力稍后就能恢复）
+          const earlier = this._earliestUnblock(now, roundModel)
+          if (earlier && earlier < waitUntil) {
+            waitUntil = Math.max(now + 1000, earlier)
+            this.log('info', `其他模型将更早解封（${formatClock(waitUntil)}），先等到该时刻再重试`)
+          }
           this._nextLabel = '额度恢复'
           this.state.waitReason = plan.reason
           this.log(
             'warn',
-            `${KIND_TEXT[cls.kind] || cls.kind}（${cls.match || '未识别详情'}）：已排定 ${formatClock(plan.until)} 自动继续` +
-              `（等待 ${formatWait(plan.until - Date.now())}，不消耗重启次数）`
+            `${KIND_TEXT[cls.kind] || cls.kind}（${cls.match || '未识别详情'}）：已排定 ${formatClock(waitUntil)} 自动继续` +
+              `（等待 ${formatWait(waitUntil - now)}，不消耗重启次数）`
           )
-          untilMs = plan.until
+          untilMs = waitUntil
           delaySec = 0
         } else {
           // 失败重启：计数仅用于 maxRestarts 上限
@@ -844,8 +897,6 @@ export class Daemon extends EventEmitter {
             this.logWriter.close()
             return
           }
-          // 事件流中已识别出需切换模型的错误但退出码为 0 时，同样顺延备选
-          if (plan.switchModel && code === 0) this._failStreak = (this._failStreak || 0) + 1
           this._nextLabel = `重启 #${this.restartCount}`
           this.state.waitReason = plan.reason || ''
           delaySec = Math.max(1, Number(plan.delaySec) || Number(this.cfg.retryDelay) || 1)
@@ -857,7 +908,14 @@ export class Daemon extends EventEmitter {
       }
 
       this.state.status = 'waiting'
-      this.state.nextRestartAt = untilMs != null ? untilMs : Date.now() + delaySec * 1000
+      let nextAt = untilMs != null ? untilMs : Date.now() + delaySec * 1000
+      // 模型链全部受限：等到最早解封再试，避免对仍在冷却的模型反复请求
+      const atNext = selectModel(this.cfg, this._modelCooldowns, nextAt)
+      if (atNext.blockedUntil) {
+        this.log('info', `模型链均在冷却中，推迟到 ${formatClock(atNext.blockedUntil)} 再重试`)
+        nextAt = atNext.blockedUntil
+      }
+      this.state.nextRestartAt = nextAt
       this.emitState()
       // 「立即重启」终止当前轮后跳过重启延时（skipDelay 由 restartNow 设置，此处消费）
       if (!this.skipDelay) {
@@ -869,9 +927,63 @@ export class Daemon extends EventEmitter {
     }
   }
 
-  _spawnCmd() {
-    // 模型轮换：主力连续失败后按可选模型链顺延
-    const model = pickModel(this.cfg, this._failStreak || 0)
+  /** 其他模型最早的解封时刻（epoch ms；无则 0） */
+  _earliestUnblock(now = Date.now(), exclude = '') {
+    let best = 0
+    for (const [model, until] of this._modelCooldowns) {
+      if (model === exclude) continue
+      const t = Number(until) || 0
+      if (t > now && (!best || t < best)) best = t
+    }
+    return best
+  }
+
+  /**
+   * 本轮模型选择 + 切回主力的日志/状态说明。
+   * 主力受限（额度/限流/鉴权）→ 降级到未受限备选；冷却到期 → 自动切回主力。
+   */
+  _nextModel(now = Date.now()) {
+    const models = effectiveModels(this.cfg)
+    const prefer = Math.min(Math.max(this._failStreak || 0, 0), Math.max(models.length - 1, 0))
+    const picked = selectModel(this.cfg, this._modelCooldowns, now, prefer)
+    if (!models.length) {
+      this.state.modelNote = ''
+      return picked
+    }
+    const primary = models[0]
+    const prev = this.state.model || ''
+    const primaryUntil = this._modelCooldowns.get(primary) || 0
+    if (picked.index === 0 && primaryUntil <= now) {
+      // 主力可用（冷却到期或被探活确认恢复）：清理冷却并按需提示切回
+      const had = this._modelCooldowns.has(primary)
+      const kind = this._modelCooldownKind.get(primary) || ''
+      this._modelCooldowns.delete(primary)
+      this._modelCooldownKind.delete(primary)
+      this.state.modelNote = ''
+      if (had) {
+        const reason = LIMIT_TEXT[kind] || '限制'
+        if (prev && prev !== primary) this.log('info', `主力模型 ${primary} 的${reason}已解除，自动切回主力模型`)
+        else this.log('info', `主力模型 ${primary} 已恢复可用，继续使用主力模型`)
+      }
+      return picked
+    }
+    if (picked.blockedUntil) {
+      // 全部模型都在冷却：按最早解封的一个提前试探，避免整条链停摆
+      this.state.modelNote = `模型链均受限，按最早解封的 ${picked.model} 提前重试（${formatClock(picked.blockedUntil)}）`
+    } else if (primaryUntil > now) {
+      const kind = this._modelCooldownKind.get(primary) || ''
+      this.state.modelNote =
+        `主力模型 ${primary} ${LIMIT_TEXT[kind] || '受限'}，已切换备选 ${picked.model}` +
+        `（预计 ${formatClock(primaryUntil)} 重试主力）`
+    } else {
+      // 备用模型顺延（非额度类连续失败）：不涉及主力冷却
+      this.state.modelNote = `主力模型 ${primary} 连续失败，已切换备选 ${picked.model}`
+    }
+    if (prev !== picked.model) this.log('warn', this.state.modelNote)
+    return picked
+  }
+
+  _spawnCmd(model = '') {
     const args = buildRunArgs(this.cfg, this.caps || {}, model)
     const prompt = expandPrompt(this.cfg.prompt, { project: this.cfg.project })
     if (!prompt) return { error: '提示词为空，请在「提示词」页配置' }
@@ -887,7 +999,8 @@ export class Daemon extends EventEmitter {
 
   _runOnce(gen) {
     return new Promise((resolve) => {
-      const cmd = this._spawnCmd()
+      const picked = this._nextModel()
+      const cmd = this._spawnCmd(picked.model)
       if (cmd.error) {
         this.state.status = 'error'
         this.state.lastError = cmd.error
@@ -962,7 +1075,7 @@ export class Daemon extends EventEmitter {
             })
             .catch(() => {})
         }
-        // 轮换计数：正常退出重置回主力；异常退出递增顺延可选模型
+        // 轮换计数：正常退出重置回主力；异常退出递增顺延可选模型（额度等受限改由冷却窗口控制）
         if (code === 0) this._failStreak = 0
         else this._failStreak = (this._failStreak || 0) + 1
         const level = this.stopRequested ? 'info' : code === 0 ? 'info' : 'error'

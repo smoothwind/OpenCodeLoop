@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { classifyError, parseResetTime, planRecovery, KIND_TEXT, formatWait, formatClock } from '../src/main/errpolicy.js'
+import {
+  classifyError,
+  parseResetTime,
+  planRecovery,
+  cooldownUntil,
+  MODEL_PROBE_MS,
+  AUTH_PROBE_MS,
+  KIND_TEXT,
+  LIMIT_TEXT,
+  formatWait,
+  formatClock
+} from '../src/main/errpolicy.js'
 
 // 固定"当前时间"，避免用例随运行时刻漂移
 const NOW = new Date('2026-10-24T12:00:00').getTime()
@@ -190,6 +201,35 @@ describe('planRecovery（分级处理策略）', () => {
   })
 })
 
+describe('cooldownUntil（模型受限冷却 → 自动切回主力的时间点）', () => {
+  it('额度/限流：优先使用错误里的恢复时间', () => {
+    const resetAt = NOW + 2 * 3600 * 1000
+    expect(cooldownUntil({ kind: 'quota', resetAt }, NOW)).toBe(resetAt)
+    expect(cooldownUntil({ kind: 'ratelimit', resetAt }, NOW)).toBe(resetAt)
+  })
+
+  it('额度/限流无恢复时间 → 按探活间隔稍后重试', () => {
+    expect(cooldownUntil({ kind: 'quota', resetAt: null }, NOW)).toBe(NOW + MODEL_PROBE_MS)
+    expect(cooldownUntil({ kind: 'ratelimit', resetAt: null }, NOW, 5000)).toBe(NOW + 5000)
+  })
+
+  it('鉴权失败：探活间隔至少 30 分钟（避免频繁无效请求）', () => {
+    expect(cooldownUntil({ kind: 'auth', resetAt: null }, NOW, 5000)).toBe(NOW + AUTH_PROBE_MS)
+    expect(cooldownUntil({ kind: 'auth', resetAt: null }, NOW)).toBe(NOW + AUTH_PROBE_MS)
+  })
+
+  it('已过去的恢复时间视为无效 → 回落到探活间隔', () => {
+    expect(cooldownUntil({ kind: 'quota', resetAt: NOW - 1000 }, NOW, 6000)).toBe(NOW + 6000)
+  })
+
+  it('网络/服务端/未知错误不冷却模型', () => {
+    for (const kind of ['network', 'server', 'unknown']) {
+      expect(cooldownUntil({ kind, resetAt: NOW + 1000 }, NOW)).toBeNull()
+    }
+    expect(cooldownUntil(null, NOW)).toBeNull()
+  })
+})
+
 describe('展示辅助', () => {
   it('formatWait 人性化时长', () => {
     expect(formatWait(45 * 1000)).toBe('45 秒')
@@ -204,6 +244,12 @@ describe('展示辅助', () => {
   it('KIND_TEXT 覆盖全部分类', () => {
     for (const k of ['quota', 'auth', 'ratelimit', 'server', 'network', 'unknown']) {
       expect(KIND_TEXT[k]).toBeTruthy()
+    }
+  })
+
+  it('LIMIT_TEXT 覆盖会产生冷却的三类限制', () => {
+    for (const k of ['quota', 'ratelimit', 'auth']) {
+      expect(LIMIT_TEXT[k]).toBeTruthy()
     }
   })
 })

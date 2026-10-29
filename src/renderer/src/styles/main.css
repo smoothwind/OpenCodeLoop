@@ -507,6 +507,18 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* 模型切换说明（主力受限 / 恢复切回）：单行省略，完整内容见 title */
+.ol-task__note {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ol-warn {
+  color: var(--ux-warning-fg);
+}
+
 .ol-good {
   color: var(--ux-success-fg);
 }
