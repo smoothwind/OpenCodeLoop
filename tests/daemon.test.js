@@ -167,12 +167,24 @@ describe('parseRunEvent（智能体交互事件解析）', () => {
     )
     expect(e.title).toBe('[工具] bash · completed')
     expect(e.detail).toContain('git status')
+    expect(e.source).toBe(undefined)
   })
 
-  it('error 事件 → error 级别', () => {
+  it('error 事件 → error 级别（标记为供应商错误，供轮内即时切换）', () => {
     const e = parseRunEvent(JSON.stringify({ type: 'error', message: '模型连接失败' }))
     expect(e.level).toBe('error')
     expect(e.title).toContain('模型连接失败')
+    expect(e.source).toBe('error')
+  })
+
+  it('工具失败标记 source=tool，不触发轮内模型切换', () => {
+    const e = parseRunEvent(
+      JSON.stringify({
+        type: 'tool',
+        part: { tool: 'bash', state: { status: 'error', error: 'quota exceeded' } }
+      })
+    )
+    expect(e.source).toBe('tool')
   })
 
   it('opencode 原生错误事件（error.data.message + statusCode）→ 提取信息并供分类', () => {
@@ -788,6 +800,63 @@ describe('错误分级处理策略（额度恢复 / 鉴权停止）', () => {
     expect(d.state.modelNote).toBe('')
   }, 60000)
 
+  it('轮内发现额度不足立即中止并切备选（不等 CLI 长重试/重启间隔）', async () => {
+    const { mkdtemp, writeFile, readFile } = await import('node:fs/promises')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const proj = await mkdtemp(join(tmpdir(), 'ocl-quota-live-'))
+    const fake = join(proj, 'fake.cmd')
+    // 第一轮：主力输出额度错误后故意长睡（20s）；若未即时中止，整轮会拖到睡醒
+    // 第二轮：备选模型直接完成
+    await writeFile(
+      fake,
+      [
+        '@echo off',
+        'echo %* >> models.txt',
+        'if exist first.flag goto second',
+        'type nul > first.flag',
+        'echo 模型请求额度不足，请稍后重试 1>&2',
+        'ping -n 20 127.0.0.1 >nul',
+        'exit /b 1',
+        ':second',
+        'echo DONE',
+        'exit /b 0'
+      ].join('\r\n'),
+      'utf-8'
+    )
+    const d = new Daemon()
+    const cfg = {
+      ...taskDefaults(),
+      id: 't',
+      project: proj,
+      attachUrl: '',
+      sessionMode: 'new',
+      prompt: 'x',
+      doneKeyword: 'DONE',
+      model: 'a/primary',
+      fallbackModels: ['b/fb1'],
+      // 常规重启间隔故意设大：证明额度切换不等它
+      retryDelay: 30,
+      logFile: join(proj, 'l.log')
+    }
+    const t0 = Date.now()
+    await d.start(cfg, { path: fake, direct: false })
+    const status = await waitDone(d, 30000)
+    expect(status).toBe('done')
+    // 未即时中止时首轮要睡 20s + 30s 重启间隔；即时切换应在数秒内完成
+    expect(Date.now() - t0).toBeLessThan(10000)
+    expect(d.state.runs).toBe(2)
+    const used = (await readFile(join(proj, 'models.txt'), 'utf-8'))
+      .trim()
+      .split(/\r?\n/)
+      .filter(Boolean)
+    expect(used[0]).toContain('a/primary')
+    expect(used[1]).toContain('b/fb1')
+    const titles = d.tail(120).map((l) => l.title)
+    expect(titles.some((t) => t.includes('检测到额度不足'))).toBe(true)
+    expect(titles.some((t) => t.includes('立即切换备选模型'))).toBe(true)
+  }, 40000)
+
   it('鉴权失败且无备选 → 守护明确停止并给出原因', async () => {
     const { mkdtemp, writeFile } = await import('node:fs/promises')
     const { tmpdir } = await import('node:os')
@@ -828,6 +897,45 @@ describe('错误分级处理策略（额度恢复 / 鉴权停止）', () => {
     expect(d.state.status).toBe('stopped')
     expect(d.state.nextRestartAt).toBeNull()
     expect(d.state.waitReason).toBe('')
+  })
+
+  it('probePrimary：清除主力受限记录并跳过等待（充值后立即切回）', () => {
+    const d = new Daemon()
+    d.cfg = { ...taskDefaults(), model: 'a/primary', fallbackModels: ['b/fb1'] }
+    d.state.status = 'waiting'
+    d.state.model = 'b/fb1'
+    d.state.modelNote = '主力模型 a/primary 额度限制，已切换备选 b/fb1'
+    d._modelCooldowns.set('a/primary', Date.now() + 60 * 1000)
+    d._modelCooldownKind.set('a/primary', 'quota')
+    d._failStreak = 2
+    const r = d.probePrimary()
+    expect(r).toEqual({ ok: true, model: 'a/primary', restarted: true })
+    expect(d._modelCooldowns.has('a/primary')).toBe(false)
+    expect(d._modelCooldownKind.has('a/primary')).toBe(false)
+    expect(d._failStreak).toBe(0)
+    expect(d.state.modelNote).toBe('')
+    expect(d.skipDelay).toBe(true)
+  })
+
+  it('probePrimary：未配置模型链时给出明确提示', () => {
+    const d = new Daemon()
+    d.cfg = taskDefaults()
+    const r = d.probePrimary()
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('未配置模型链')
+  })
+
+  it('_earliestRecoverableUnblock：鉴权冷却不算可恢复，额度/限流才算', () => {
+    const d = new Daemon()
+    const now = 1000
+    d._modelCooldowns.set('a/quota', now + 5000)
+    d._modelCooldownKind.set('a/quota', 'quota')
+    d._modelCooldowns.set('b/auth', now + 2000)
+    d._modelCooldownKind.set('b/auth', 'auth')
+    d._modelCooldowns.set('c/rate', now + 9000)
+    d._modelCooldownKind.set('c/rate', 'ratelimit')
+    expect(d._earliestRecoverableUnblock(now)).toBe(now + 5000)
+    expect(d._earliestRecoverableUnblock(now, 'a/quota')).toBe(now + 9000)
   })
 })
 

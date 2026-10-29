@@ -149,46 +149,79 @@ describe('classifyError（错误分类）', () => {
 describe('planRecovery（分级处理策略）', () => {
   const quota = (resetAt = null) => ({ kind: 'quota', resetAt, match: '额度' })
 
-  it('额度不足 + 有恢复时间 + 无备选 → wait 到恢复点（封顶 maxWaitMs）', () => {
+  it('额度不足 + 有恢复时间 + 无备选 → 等到恢复点（不超过探活间隔）', () => {
     const resetAt = NOW + 5 * 3600 * 1000
-    const p = planRecovery(quota(resetAt), { hasFallback: false, retryDelaySec: 120, now: NOW })
+    // 探活间隔比恢复点更远：按恢复点等
+    const p = planRecovery(quota(resetAt), { hasFallback: false, retryDelaySec: 120, now: NOW, probeMs: 24 * 3600 * 1000 })
     expect(p.action).toBe('wait')
     expect(p.until).toBe(resetAt)
     expect(p.reason).toContain('额度')
+    // 恢复点很远时只等到下一次探活：充值/提前解封后能尽快恢复
+    const capped = planRecovery(quota(resetAt), { hasFallback: false, retryDelaySec: 120, now: NOW, probeMs: 60 * 1000 })
+    expect(capped.until).toBe(NOW + 60 * 1000)
+    expect(capped.reason).toContain('探活')
     // 误解析的超远时间被封顶
-    const p2 = planRecovery(quota(NOW + 100 * 24 * 3600 * 1000), { hasFallback: false, retryDelaySec: 120, now: NOW, maxWaitMs: 3600 * 1000 })
+    const p2 = planRecovery(quota(NOW + 100 * 24 * 3600 * 1000), {
+      hasFallback: false,
+      retryDelaySec: 120,
+      now: NOW,
+      probeMs: 24 * 3600 * 1000,
+      maxWaitMs: 3600 * 1000
+    })
     expect(p2.until).toBe(NOW + 3600 * 1000)
   })
 
-  it('额度不足 + 有备选模型 → 立即切换重试（常规间隔）', () => {
+  it('额度不足 + 有备选模型 → 立即切换，不等常规重启间隔', () => {
     const p = planRecovery(quota(NOW + 5 * 3600 * 1000), { hasFallback: true, retryDelaySec: 120, now: NOW })
     expect(p.action).toBe('retry')
     expect(p.switchModel).toBe(true)
-    expect(p.delaySec).toBe(120)
+    expect(p.delaySec).toBe(1)
+    // 可显式指定切换等待
+    expect(
+      planRecovery(quota(NOW + 5 * 3600 * 1000), { hasFallback: true, retryDelaySec: 120, now: NOW, switchDelaySec: 5 })
+        .delaySec
+    ).toBe(5)
   })
 
-  it('额度不足 + 无恢复时间：有备选切换；无备选拉长退避（≥5 分钟）', () => {
+  it('额度不足 + 无恢复时间：有备选立即切换；无备选按探活间隔等待（不消耗重启次数）', () => {
     const withFb = planRecovery(quota(), { hasFallback: true, retryDelaySec: 120, now: NOW })
     expect(withFb.switchModel).toBe(true)
     const noFb = planRecovery(quota(), { hasFallback: false, retryDelaySec: 120, now: NOW })
-    expect(noFb.action).toBe('retry')
-    expect(noFb.delaySec).toBeGreaterThanOrEqual(300)
+    expect(noFb.action).toBe('wait')
+    expect(noFb.until).toBe(NOW + MODEL_PROBE_MS)
+    expect(noFb.reason).toContain('探活')
   })
 
-  it('鉴权失败：有备选切换；无备选停止', () => {
+  it('鉴权失败：有备选切换；其他模型仅额度冷却时等待其解封；完全没有可恢复备选才停止', () => {
     expect(planRecovery({ kind: 'auth', resetAt: null }, { hasFallback: true, retryDelaySec: 120 }).action).toBe('retry')
+    const wait = planRecovery(
+      { kind: 'auth', resetAt: null },
+      { hasFallback: false, retryDelaySec: 120, now: NOW, recoverableUntil: NOW + 30 * 1000 }
+    )
+    expect(wait.action).toBe('wait')
+    expect(wait.until).toBe(NOW + 30 * 1000)
+    expect(wait.reason).toContain('等待')
     const stop = planRecovery({ kind: 'auth', resetAt: null }, { hasFallback: false, retryDelaySec: 120 })
     expect(stop.action).toBe('stop')
     expect(stop.reason).toContain('鉴权')
   })
 
-  it('限流：无时间窗退避 ≥60s；带时间窗且无备选 → wait', () => {
+  it('限流：无时间窗退避 ≥60s；带时间窗且无备选 → wait（不超过探活间隔）', () => {
     const p = planRecovery({ kind: 'ratelimit', resetAt: null }, { hasFallback: false, retryDelaySec: 5 })
     expect(p.action).toBe('retry')
     expect(p.delaySec).toBeGreaterThanOrEqual(60)
-    const w = planRecovery({ kind: 'ratelimit', resetAt: NOW + 90 * 1000 }, { hasFallback: false, retryDelaySec: 5, now: NOW })
+    const w = planRecovery(
+      { kind: 'ratelimit', resetAt: NOW + 90 * 1000 },
+      { hasFallback: false, retryDelaySec: 5, now: NOW, probeMs: 10 * 60 * 1000 }
+    )
     expect(w.action).toBe('wait')
     expect(w.until).toBe(NOW + 90 * 1000)
+    // 限流窗口很长时按探活间隔提前试
+    const capped = planRecovery(
+      { kind: 'ratelimit', resetAt: NOW + 90 * 1000 },
+      { hasFallback: false, retryDelaySec: 5, now: NOW, probeMs: 60 * 1000 }
+    )
+    expect(capped.until).toBe(NOW + 60 * 1000)
   })
 
   it('网络/服务端/未知 → 常规重启，不切换模型', () => {
@@ -202,10 +235,12 @@ describe('planRecovery（分级处理策略）', () => {
 })
 
 describe('cooldownUntil（模型受限冷却 → 自动切回主力的时间点）', () => {
-  it('额度/限流：优先使用错误里的恢复时间', () => {
+  it('额度/限流：恢复时间只作上界，冷却不超过探活间隔', () => {
     const resetAt = NOW + 2 * 3600 * 1000
-    expect(cooldownUntil({ kind: 'quota', resetAt }, NOW)).toBe(resetAt)
-    expect(cooldownUntil({ kind: 'ratelimit', resetAt }, NOW)).toBe(resetAt)
+    expect(cooldownUntil({ kind: 'quota', resetAt }, NOW)).toBe(NOW + MODEL_PROBE_MS)
+    expect(cooldownUntil({ kind: 'ratelimit', resetAt }, NOW)).toBe(NOW + MODEL_PROBE_MS)
+    // 恢复点更近时按恢复点
+    expect(cooldownUntil({ kind: 'quota', resetAt: NOW + 30 * 1000 }, NOW)).toBe(NOW + 30 * 1000)
   })
 
   it('额度/限流无恢复时间 → 按探活间隔稍后重试', () => {

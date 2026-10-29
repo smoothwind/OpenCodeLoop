@@ -243,53 +243,92 @@ export function classifyError(text, now = Date.now()) {
  * - action 'wait'  ：等到 until（epoch ms）再拉起（额度恢复场景）
  * - action 'retry' ：按 delaySec 退避后重试；switchModel=true 时顺延备选模型
  * - action 'stop'  ：停止守护（鉴权失败且无备选）
+ *
+ * opts.probeMs：受限模型的探活间隔（等待点不会超过该间隔，便于充值后尽快恢复）
+ * opts.switchDelaySec：切换模型前的等待秒数（默认 1s，不等常规重启间隔）
+ * opts.recoverableUntil：其他「非鉴权」受限模型的最早解封时刻（epoch ms）。
+ *   鉴权失败且当前无可用备选时，若还有只是额度/限流冷却的模型，先等它解封；
+ *   只有所有模型都是鉴权问题（或根本没有其他模型）才停止守护。
  */
 export function planRecovery(cls, opts = {}) {
   const retryDelaySec = Math.max(1, Number(opts.retryDelaySec) || 1)
   const hasFallback = !!opts.hasFallback
+  const recoverableUntil = Number(opts.recoverableUntil) || 0
   const now = Number.isFinite(opts.now) ? opts.now : Date.now()
   const maxWaitMs = Number.isFinite(opts.maxWaitMs) ? opts.maxWaitMs : 24 * 3600 * 1000
+  const probeMs = Number.isFinite(opts.probeMs) ? Math.max(1000, opts.probeMs) : MODEL_PROBE_MS
+  /** 切换模型本身没有退避意义：不等常规重启间隔，立即用备选继续 */
+  const switchDelaySec = Number.isFinite(opts.switchDelaySec)
+    ? Math.max(1, Number(opts.switchDelaySec))
+    : 1
   const base = { action: 'retry', until: null, switchModel: false, delaySec: retryDelaySec, reason: '' }
+  const probeReason = `每 ${formatWait(probeMs)}探活一次，充值/解封后立即继续`
+  /** 等待点：不超过探活间隔，充值或提前解封后才能尽快发现 */
+  const probeUntil = (resetAt, floorMs) =>
+    Math.min(Math.max(resetAt, now + floorMs), now + maxWaitMs, now + probeMs)
 
   switch (cls?.kind) {
     case 'quota': {
-      // 无备选模型且有恢复时间：等到恢复点（封顶 maxWaitMs，防误解析导致无限等待）
-      if (cls.resetAt && !hasFallback) {
-        const until = Math.min(Math.max(cls.resetAt, now + retryDelaySec * 1000), now + maxWaitMs)
+      // 无可用备选（没配置备选，或备选都在冷却）：不停止、不消耗重启次数，
+      // 按恢复时间/探活间隔继续尝试；充值或提前解封后下一轮就能恢复。
+      if (!hasFallback) {
+        const target = cls.resetAt || now + probeMs
+        const until = probeUntil(target, retryDelaySec * 1000)
         return {
           ...base,
           action: 'wait',
           until,
           delaySec: Math.max(1, Math.ceil((until - now) / 1000)),
-          reason: '额度不足，等待恢复后自动继续'
+          reason: `额度不足且暂无可用备选，${probeReason}`
         }
       }
-      // 有备选模型：立即切换（不同模型通常独立计额）；无恢复时间：无备选时拉长退避（5h/周窗口型额度短重试无意义）
+      // 有备选模型：立即切换（不同模型通常独立计额）
       return {
         ...base,
-        switchModel: hasFallback,
-        delaySec: hasFallback ? retryDelaySec : Math.max(retryDelaySec, 300),
-        reason: hasFallback ? '额度不足，切换备选模型重试' : '额度不足且无备选模型，延长退避后重试'
+        switchModel: true,
+        delaySec: switchDelaySec,
+        reason: '额度不足，立即切换备选模型重试'
       }
     }
     case 'auth':
       if (hasFallback) {
-        return { ...base, switchModel: true, reason: '鉴权失败，切换备选模型重试' }
+        return {
+          ...base,
+          switchModel: true,
+          delaySec: switchDelaySec,
+          reason: '鉴权失败，立即切换备选模型重试'
+        }
       }
-      return { ...base, action: 'stop', reason: '鉴权失败（密钥无效或套餐过期），且无备选模型可切换' }
-    case 'ratelimit': {
-      const resetAt = cls.resetAt && cls.resetAt > now ? cls.resetAt : null
-      if (resetAt && !hasFallback) {
-        const until = Math.min(resetAt, now + maxWaitMs)
+      // 其他模型只是额度/限流冷却：等它解封，不要因为当前模型鉴权失败就停掉整条链
+      if (recoverableUntil > now) {
+        const until = Math.min(Math.max(recoverableUntil, now + switchDelaySec * 1000), now + maxWaitMs)
         return {
           ...base,
           action: 'wait',
           until,
           delaySec: Math.max(1, Math.ceil((until - now) / 1000)),
-          reason: '触发限流，等待限流窗口过后自动继续'
+          reason: `鉴权失败，其他模型仍在额度/限流冷却，等待其解封后重试`
         }
       }
-      return { ...base, delaySec: Math.max(retryDelaySec, 60), switchModel: hasFallback, reason: '触发限流，退避后重试' }
+      return { ...base, action: 'stop', reason: '鉴权失败（密钥无效或套餐过期），且无其他可恢复的备选模型' }
+    case 'ratelimit': {
+      const resetAt = cls.resetAt && cls.resetAt > now ? cls.resetAt : null
+      if (resetAt && !hasFallback) {
+        const until = probeUntil(resetAt, 0)
+        return {
+          ...base,
+          action: 'wait',
+          until,
+          delaySec: Math.max(1, Math.ceil((until - now) / 1000)),
+          reason: `触发限流，${probeReason}`
+        }
+      }
+      return {
+        ...base,
+        delaySec: hasFallback ? switchDelaySec : Math.max(retryDelaySec, 60),
+        switchModel: hasFallback,
+        reason: hasFallback ? '触发限流，立即切换备选模型重试' : '触发限流，退避后重试'
+      }
     }
     default:
       return base
@@ -298,23 +337,28 @@ export function planRecovery(cls, opts = {}) {
 
 // ---------- 模型受限冷却 ----------
 
-/** 无明确恢复时间时，受限模型的探活间隔：到点自动重试，探到恢复即切回主力 */
-export const MODEL_PROBE_MS = 10 * 60 * 1000
+/**
+ * 受限模型的探活间隔：到点自动重试，探到恢复即切回主力。
+ * 默认 60 秒——额度耗光后立即降级、充值/解封后一分钟内就能切回，
+ * 不再像旧版那样固定等 10 分钟（可在「设置 → 通用」调整）。
+ */
+export const MODEL_PROBE_MS = 60 * 1000
 /** 鉴权类问题通常需人工处理：探活间隔更长，避免频繁无效请求 */
 export const AUTH_PROBE_MS = 30 * 60 * 1000
 
 /**
  * 失败分类 → 该模型的不可用截止时间（epoch ms）；null = 无需冷却。
- * 仅额度/限流/鉴权类错误会让模型进入冷却：优先使用错误文案解析出的恢复时间，
- * 无法解析时按探活间隔稍后再试（探到恢复即自动切回主力模型）。
+ * 仅额度/限流/鉴权类错误会让模型进入冷却：错误文案里的恢复时间只作为上界，
+ * 实际冷却不超过探活间隔——这样充值或提前解封后不必等满整个额度窗口。
  */
 export function cooldownUntil(cls, now = Date.now(), probeMs = MODEL_PROBE_MS) {
   const kind = cls?.kind
   if (kind !== 'quota' && kind !== 'ratelimit' && kind !== 'auth') return null
-  const resetAt = Number(cls?.resetAt)
-  if (Number.isFinite(resetAt) && resetAt > now) return resetAt
   const probe = Number.isFinite(probeMs) ? Math.max(1000, probeMs) : MODEL_PROBE_MS
-  return now + (kind === 'auth' ? Math.max(probe, AUTH_PROBE_MS) : probe)
+  const waitMs = kind === 'auth' ? Math.max(probe, AUTH_PROBE_MS) : probe
+  const resetAt = Number(cls?.resetAt)
+  if (Number.isFinite(resetAt) && resetAt > now) return Math.min(resetAt, now + waitMs)
+  return now + waitMs
 }
 
 // ---------- 展示辅助 ----------

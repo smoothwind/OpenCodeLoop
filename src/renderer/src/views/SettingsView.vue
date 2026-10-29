@@ -96,6 +96,12 @@ async function pickExe() {
   if (r && !r.canceled) setConfig({ opencodePath: r.path })
 }
 
+/** 模型受限探活间隔：15 秒 ~ 1 小时，默认 60 秒 */
+function setProbeSec(v) {
+  const n = Math.round(Number(v) || 60)
+  setConfig({ modelProbeSec: Math.max(15, Math.min(3600, n)) })
+}
+
 // ---------- 更新检测（只提醒，不自动下载） ----------
 
 async function onCheckUpdate() {
@@ -139,6 +145,15 @@ onMounted(async () => {
             @update:model-value="(v) => setConfig({ opencodePath: v })"
           />
           <UxButton size="sm" variant="secondary" icon="act-open-file" label="选择 opencode 可执行文件" @click="pickExe">浏览…</UxButton>
+        </div>
+        <div class="ol-form-row">
+          <UxInput
+            class="ol-num"
+            :model-value="String(store.config.modelProbeSec ?? 60)"
+            label="模型受限探活间隔（秒）"
+            hint="主力额度/限流受限时按此间隔自动探活；充值或提前解封后自动切回主力，默认 60 秒"
+            @update:model-value="setProbeSec"
+          />
         </div>
         <label class="ol-check">
           <input
@@ -236,7 +251,7 @@ onMounted(async () => {
             </UxTooltip>
           </div>
           <span class="ol-hint">
-            配置（config.json）、守护日志与孤儿进程快照均保存在此目录；便携模式下拷贝安装目录即可完整迁移。守护任务的运行日志默认写在各任务的项目目录（keep-alive.log）。
+            配置（config.json）、守护日志与孤儿进程快照均保存在此目录；安装版默认使用系统目录，重装/升级会保留配置；exe 同级放 portable 标记文件可切换为便携模式（拷贝安装目录即可迁移）。守护任务的运行日志默认写在各任务的项目目录（keep-alive.log）。
           </span>
         </div>
       </div>

@@ -201,6 +201,7 @@ export function parseRunEvent(line) {
           title: `[工具] ${name} · 失败：${toolErr.slice(0, 160)}`,
           detail: input || toolErr.slice(0, 4000),
           sessionId,
+          source: 'tool',
           errorText: toolErr.slice(0, 2000)
         }
       }
@@ -247,6 +248,8 @@ export function parseRunEvent(line) {
         title: `[错误] ${msg.slice(0, 180)}${tags.length ? `（${tags.join('，')}）` : ''}`,
         detail: t.slice(0, 4000),
         sessionId,
+        // 仅供应商错误事件可触发“立即切换模型”，工具失败不参与（可能只是命令输出里含额度字样）
+        source: 'error',
         // 原始事件全文纳入分类：业务码（1308）、HTTP 状态、type（provider.rate-limit）与恢复时间都在其中
         errorText: t.slice(0, 4000)
       }
@@ -323,6 +326,8 @@ export class Daemon extends EventEmitter {
     this._gateRestart = false
     /** 会话等待期点击“跳过等待”：本轮不再等待直接发送（一次性，消费即清除） */
     this._gateForce = false
+    /** 本轮是否已因额度/鉴权错误中止（防止重复 kill） */
+    this._limitAbort = false
     this._svcFixes = 0
     this._svcPort = null
     this.state = initialState()
@@ -404,6 +409,7 @@ export class Daemon extends EventEmitter {
       this._gateWarned = false
       this._gateRestart = false
       this._gateForce = false
+      this._limitAbort = false
       this.cfg = cfg
       this.bin = bin
       this.caps = caps
@@ -463,9 +469,16 @@ export class Daemon extends EventEmitter {
   restartNow() {
     if (!this.busy) return
     if (this.state.status === 'waiting') {
-      // 会话闸门等待：只唤醒重新探测（TUI 仍在跑时继续等待），不结束守护
-      this._gateRestart = !!this.state.sessionWaitStartedAt
-      this._abortGate()
+      if (this.state.sessionWaitStartedAt) {
+        // 会话闸门等待：只唤醒重新探测（TUI 仍在跑时继续等待），不结束守护
+        this._gateRestart = true
+        this._abortGate()
+        this._wake?.()
+        return
+      }
+      // 额度/限流等错误策略等待：跳过剩余倒计时，立即进入下一轮
+      this.skipDelay = true
+      this.log('info', '跳过等待，立即重试')
       this._wake?.()
       return
     }
@@ -477,6 +490,32 @@ export class Daemon extends EventEmitter {
     this.log('info', '请求立即重启，终止当前轮')
     this._kill('当前轮已终止（立即重启）')
     if (sid) this._interruptServerSession(sid)
+  }
+
+  /**
+   * 立即切回主力模型（充值/解封后手动触发）：
+   * 清除主力的受限记录并跳过等待；若当前正跑备选轮则终止它，下一轮立刻使用主力。
+   */
+  probePrimary() {
+    const models = effectiveModels(this.cfg)
+    if (!models.length) return { ok: false, error: '未配置模型链（当前使用会话默认模型）' }
+    const primary = models[0]
+    const had = this._modelCooldowns.has(primary)
+    this._modelCooldowns.delete(primary)
+    this._modelCooldownKind.delete(primary)
+    this._failStreak = 0
+    this.state.modelNote = ''
+    if (!this.busy) {
+      this.log('info', `已清除主力模型 ${primary} 的受限记录，下次启动将直接使用主力模型`)
+      this.emitState()
+      return { ok: true, model: primary, restarted: false }
+    }
+    this.log(
+      'info',
+      had ? `手动切回主力模型 ${primary}：已清除受限记录，立即重试` : `手动请求立即使用主力模型 ${primary}`
+    )
+    this.restartNow()
+    return { ok: true, model: primary, restarted: true }
   }
 
   /** 唤醒会话闸门等待循环：中断当前长轮询/休眠并重新探测（仅会话等待期使用） */
@@ -747,6 +786,24 @@ export class Daemon extends EventEmitter {
     this._errBuf = `${this._errBuf || ''}\n${text}`.slice(-65536)
   }
 
+  /**
+   * 轮内实时识别额度/鉴权错误：不再等 CLI 自己重试或整轮跑完，
+   * 立即中止本轮，让退出后的策略马上切换备选模型/进入恢复等待。
+   */
+  _maybeAbortOnLimit(text) {
+    if (this._limitAbort || this.stopRequested || this.doneHit) return
+    const cls = classifyError(text)
+    if (cls.kind !== 'quota' && cls.kind !== 'auth') return
+    this._limitAbort = true
+    const hasFallback = effectiveModels(this.cfg).length > 1
+    const next = hasFallback ? '立即切换备选模型' : '结束本轮并按恢复策略等待'
+    this.log(
+      'warn',
+      `检测到${KIND_TEXT[cls.kind] || cls.kind}（${cls.match || '未识别详情'}）：${next}`
+    )
+    this._kill(`已中止本轮：${KIND_TEXT[cls.kind] || cls.kind}`)
+  }
+
   _kill(reason) {
     const p = this.proc
     this.proc = null
@@ -840,6 +897,9 @@ export class Daemon extends EventEmitter {
           if (until) {
             this._modelCooldowns.set(roundModel, until)
             this._modelCooldownKind.set(roundModel, cls.kind)
+            // 受限模型由冷却窗口控制选型：清掉“连续失败顺延”，否则备选轮也不顺利时
+            // 主力冷却到期也不会被重新选中（一直停在不顺利的备选上）
+            this._failStreak = 0
           }
         }
         // 备选可用性：链中还有当前未受限的其他模型（冷却中的模型只排队，不算可用）
@@ -850,6 +910,8 @@ export class Daemon extends EventEmitter {
           hasFallback,
           retryDelaySec: this.cfg.retryDelay,
           now,
+          probeMs: this.modelProbeMs,
+          recoverableUntil: this._earliestRecoverableUnblock(now, roundModel),
           maxWaitMs: this.policyMaxWaitMs
         })
         this.state.errorKind = cls.kind
@@ -871,13 +933,16 @@ export class Daemon extends EventEmitter {
         if (plan.action === 'wait') {
           // 额度/限流窗口：等恢复时间到达后自动拉起，不消耗重启次数
           let waitUntil = plan.until
-          // 其他模型更早解封时按更早的时刻重试（如备选受限更久，主力稍后就能恢复）
-          const earlier = this._earliestUnblock(now, roundModel)
-          if (earlier && earlier < waitUntil) {
-            waitUntil = Math.max(now + 1000, earlier)
-            this.log('info', `其他模型将更早解封（${formatClock(waitUntil)}），先等到该时刻再重试`)
+          // 其他模型更早解封时按更早的时刻重试（如备选受限更久，主力稍后就能恢复）。
+          // 鉴权等待只针对「非鉴权」模型，不能被更早的鉴权冷却时间带偏。
+          if (cls.kind !== 'auth') {
+            const earlier = this._earliestUnblock(now, roundModel)
+            if (earlier && earlier < waitUntil) {
+              waitUntil = Math.max(now + 1000, earlier)
+              this.log('info', `其他模型将更早解封（${formatClock(waitUntil)}），先等到该时刻再重试`)
+            }
           }
-          this._nextLabel = '额度恢复'
+          this._nextLabel = cls.kind === 'auth' ? '模型恢复' : '额度恢复'
           this.state.waitReason = plan.reason
           this.log(
             'warn',
@@ -939,6 +1004,21 @@ export class Daemon extends EventEmitter {
   }
 
   /**
+   * 其他「非鉴权」受限模型的最早解封时刻：鉴权失败时用它判断
+   * 是否值得等待（额度/限流会自行恢复，鉴权通常不会）。
+   */
+  _earliestRecoverableUnblock(now = Date.now(), exclude = '') {
+    let best = 0
+    for (const [model, until] of this._modelCooldowns) {
+      if (model === exclude) continue
+      if ((this._modelCooldownKind.get(model) || '') === 'auth') continue
+      const t = Number(until) || 0
+      if (t > now && (!best || t < best)) best = t
+    }
+    return best
+  }
+
+  /**
    * 本轮模型选择 + 切回主力的日志/状态说明。
    * 主力受限（额度/限流/鉴权）→ 降级到未受限备选；冷却到期 → 自动切回主力。
    */
@@ -974,7 +1054,7 @@ export class Daemon extends EventEmitter {
       const kind = this._modelCooldownKind.get(primary) || ''
       this.state.modelNote =
         `主力模型 ${primary} ${LIMIT_TEXT[kind] || '受限'}，已切换备选 ${picked.model}` +
-        `（预计 ${formatClock(primaryUntil)} 重试主力）`
+        `（${formatClock(primaryUntil)} 自动探活主力，恢复即切回）`
     } else {
       // 备用模型顺延（非额度类连续失败）：不涉及主力冷却
       this.state.modelNote = `主力模型 ${primary} 连续失败，已切换备选 ${picked.model}`
@@ -1015,6 +1095,7 @@ export class Daemon extends EventEmitter {
       this.state.roundStartedAt = Date.now()
       this.state.model = this._roundModel || ''
       this._errBuf = ''
+      this._limitAbort = false
       this.state.waitReason = ''
       this.state.sessionWaitStartedAt = null
       // 本轮会话：停止时据此中断服务器端执行
@@ -1114,7 +1195,10 @@ export class Daemon extends EventEmitter {
         const t = text.trim()
         // stderr 错误文案纳入分类缓冲（额度不足等错误常经 stderr 输出）
         if (t) this._pushErr(t)
-        if (t) this.emitLine({ time: Date.now(), level: 'warn', title: clip(t, 160), detail: t })
+        if (t) {
+          this.emitLine({ time: Date.now(), level: 'warn', title: clip(t, 160), detail: t })
+          this._maybeAbortOnLimit(t)
+        }
       }
 
       child.stdout.on('data', (b) => onChunk(decOut.write(b), 'stdout'))
@@ -1155,7 +1239,11 @@ export class Daemon extends EventEmitter {
       if (ev && !ev.skip) {
         this.emitLine({ time: Date.now(), level: ev.level, title: ev.title, detail: ev.detail })
         // 错误事件纳入轮内错误缓冲，供退出后分类定策略
-        if (ev.level === 'error' && ev.errorText) this._pushErr(ev.errorText)
+        if (ev.level === 'error' && ev.errorText) {
+          this._pushErr(ev.errorText)
+          // 供应商错误（非工具失败）一旦是额度/鉴权问题，立即中止本轮去切换模型
+          if (ev.source === 'error') this._maybeAbortOnLimit(ev.errorText)
+        }
       }
     } else {
       this.emitLine({ time: Date.now(), level: 'info', title: clip(t, 160), detail: t })

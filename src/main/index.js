@@ -49,13 +49,25 @@ const daemons = new Map()
 /** 会话租约：同一 opencode 会话同时只允许一个守护发送提示词 */
 const sessionLease = new SessionLease()
 
-// ---------- 便携模式：配置/日志保存在安装目录（exe 同级 data/，只读时回退 userData） ----------
+// ---------- 数据目录：安装版默认用系统 userData，显式便携模式才写 exe 同级 data/ ----------
+//
+// 旧版规则是「exe 目录可写就用 data/」，但 Windows 安装版默认装在
+// %LOCALAPPDATA%\Programs（可写），导致配置落在安装目录里，覆盖安装/卸载会被清掉。
+// 现在：
+// - 安装版（app.isPackaged）默认使用 app.getPath('userData')（%APPDATA%\opencodeloop），
+//   重装/升级不会丢配置；
+// - 仅当 exe 同级存在 portable 标记文件（portable / OpenCodeLoop.portable）时启用便携模式，
+//   配置与日志写到 <exe>\data\；
+// - 首次升级会自动把旧 data/config.json 迁移到系统 userData（安装器也会在卸载前备份）。
 
+const appBaseDir = app.isPackaged ? dirname(app.getPath('exe')) : app.getAppPath()
+const portableMarker = ['portable', 'OpenCodeLoop.portable'].some((f) => existsSync(join(appBaseDir, f)))
 const legacyUserData = app.getPath('userData')
 const portableDataDir = (() => {
+  // 开发模式仍使用项目内 data/，便于调试；安装版只有显式标记才启用便携模式
+  if (app.isPackaged && !portableMarker) return null
   try {
-    const base = app.isPackaged ? dirname(app.getPath('exe')) : app.getAppPath()
-    const dataDir = join(base, 'data')
+    const dataDir = join(appBaseDir, 'data')
     mkdirSync(dataDir, { recursive: true })
     accessSync(dataDir, constants.W_OK)
     return dataDir
@@ -63,16 +75,29 @@ const portableDataDir = (() => {
     return null
   }
 })()
-if (portableDataDir) {
-  // 一次性迁移旧 userData 里的配置（便携目录尚无配置时）
+
+/** 迁移文件：仅在目标不存在时复制，避免覆盖用户当前配置 */
+function migrateFile(src, dst) {
   try {
-    const src = join(legacyUserData, 'config.json')
-    const dst = join(portableDataDir, 'config.json')
-    if (existsSync(src) && !existsSync(dst)) copyFileSync(src, dst)
+    if (!existsSync(src) || existsSync(dst)) return false
+    mkdirSync(dirname(dst), { recursive: true })
+    copyFileSync(src, dst)
+    return true
   } catch {
-    /* 迁移失败按全新配置处理 */
+    return false
   }
+}
+
+if (portableDataDir) {
+  // 便携模式：旧系统 userData 尚无便携配置时，迁移一次（保持老用户配置）
+  migrateFile(join(legacyUserData, 'config.json'), join(portableDataDir, 'config.json'))
+  migrateFile(join(legacyUserData, 'orphans.json'), join(portableDataDir, 'orphans.json'))
   app.setPath('userData', portableDataDir)
+} else {
+  // 安装版默认 userData：从旧版安装目录 data/ 迁移配置（安装器删除目录前的兜底）
+  const oldDataDir = join(appBaseDir, 'data')
+  migrateFile(join(oldDataDir, 'config.json'), join(legacyUserData, 'config.json'))
+  migrateFile(join(oldDataDir, 'orphans.json'), join(legacyUserData, 'orphans.json'))
 }
 const orphansFile = () => join(app.getPath('userData'), 'orphans.json')
 
@@ -169,10 +194,17 @@ function onDaemonState(taskId, state) {
   rebuildMenu()
 }
 
+/** 模型受限探活间隔：设置项单位秒，最小 15 秒（默认 60 秒） */
+function modelProbeMs() {
+  const sec = Math.min(3600, Math.max(15, Number(store?.all?.modelProbeSec) || 60))
+  return sec * 1000
+}
+
 function daemonFor(taskId) {
   let d = daemons.get(taskId)
   if (!d) {
     d = new Daemon({
+      modelProbeMs: modelProbeMs(),
       // 轮结束后探测会话实际使用的模型（API 优先，export 兜底）
       resolveModel: async (sessionId) => {
         const task = taskById(taskId)
@@ -278,7 +310,8 @@ function updateTray() {
       submenu: [
         { label: '启动', enabled: !busy, click: () => startTask(t.id) },
         { label: '停止', enabled: busy, click: () => daemons.get(t.id)?.stop() },
-        { label: '立即重启', enabled: busy, click: () => daemons.get(t.id)?.restartNow() }
+        { label: '立即重启', enabled: busy, click: () => daemons.get(t.id)?.restartNow() },
+        { label: '切回主力模型', enabled: busy && !!t.model, click: () => daemons.get(t.id)?.probePrimary() }
       ]
     }
   })
@@ -501,6 +534,11 @@ function registerIpc() {
       binPromise = null
       resolvedBin = null
     }
+    // 探活间隔变更：已创建的守护实例立即生效（下一轮/下一次等待起按新间隔）
+    if (partial && 'modelProbeSec' in partial) {
+      const ms = modelProbeMs()
+      for (const d of daemons.values()) d.modelProbeMs = ms
+    }
     rebuildMenu()
     updateTray()
     return next
@@ -515,6 +553,10 @@ function registerIpc() {
     daemons.get(taskId)?.restartNow()
     return { ok: true }
   })
+  // 充值/解封后立即切回主力：清除主力受限记录并跳过等待/终止备选轮
+  ipcMain.handle('daemon:probe-primary', (_e, taskId) =>
+    daemons.get(taskId)?.probePrimary() || { ok: false, error: '守护不存在' }
+  )
   // 会话等待期的处置：跳过等待（本轮直接发送）/ 中断目标会话正在执行的回合
   ipcMain.handle('daemon:skip-wait', (_e, taskId) => daemons.get(taskId)?.skipWait() || { ok: false, error: '守护不存在' })
   ipcMain.handle('daemon:interrupt-session', (_e, taskId) =>

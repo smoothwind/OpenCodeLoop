@@ -14,6 +14,8 @@ export function defaultConfig() {
     loginAtBoot: false,
     /** 启动时检查更新（只提醒，不自动下载） */
     checkUpdateOnStart: true,
+    /** 模型额度/限流受限后的探活间隔（秒）：越短，充值/解封后切回主力越快 */
+    modelProbeSec: 60,
     theme: 'system',
     promptPresets: [],
     /** 主窗口位置与尺寸（跨启动记忆） */

@@ -7,6 +7,7 @@ export const api = {
   daemonStart: (taskId) => bridge()?.daemonStart(taskId),
   daemonStop: (taskId) => bridge()?.daemonStop(taskId),
   daemonRestart: (taskId) => bridge()?.daemonRestart(taskId),
+  daemonProbePrimary: (taskId) => bridge()?.daemonProbePrimary(taskId),
   daemonSkipWait: (taskId) => bridge()?.daemonSkipWait(taskId),
   daemonInterruptSession: (taskId) => bridge()?.daemonInterruptSession(taskId),
   daemonSnapshots: () => bridge()?.daemonSnapshots(),

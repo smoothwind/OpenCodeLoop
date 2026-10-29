@@ -5,6 +5,8 @@
 ; 旧语言包（约 47 MB）与 WebGPU 着色器编译器（约 26 MB）。
 ;
 ; 只删除 Electron 运行时文件，不会触碰 data/ 下的便携配置与用户日志。
+; 配置保留：卸载/覆盖安装前把旧版 data/config.json 备份到系统 userData
+; （%APPDATA%\opencodeloop），新版默认从该位置读取，重装不再丢任务/预设/设置。
 ;
 ; ⚠ 版本门控：仅当已安装的旧版本 < 0.1.3 时才执行清理。本宏会随之后每个版本发布，
 ;   若未来重新引入这些文件（恢复 WebGPU / 增加语言包），无门控会把新装好的文件删掉。
@@ -47,5 +49,41 @@ Var OCL_OLD_VERSION
       Pop $1
       Pop $0
     ${EndIf}
+  ${EndIf}
+
+  ; 配置保留：旧版便携配置还在安装目录时，先备份到系统 userData
+  ${If} ${FileExists} "$INSTDIR\data\config.json"
+    CreateDirectory "$APPDATA\opencodeloop"
+    CopyFiles /SILENT "$INSTDIR\data\config.json" "$APPDATA\opencodeloop\reinstall-backup.json"
+    ; 覆盖安装（未走卸载器）时也直接补一份正式配置
+    ${IfNot} ${FileExists} "$APPDATA\opencodeloop\config.json"
+      CopyFiles /SILENT "$INSTDIR\data\config.json" "$APPDATA\opencodeloop\config.json"
+    ${EndIf}
+  ${EndIf}
+
+  ; 卸载器在删除安装目录前备份过配置：正式配置不存在时恢复
+  ${IfNot} ${FileExists} "$APPDATA\opencodeloop\config.json"
+    ${If} ${FileExists} "$APPDATA\opencodeloop\reinstall-backup.json"
+      CopyFiles /SILENT "$APPDATA\opencodeloop\reinstall-backup.json" "$APPDATA\opencodeloop\config.json"
+    ${EndIf}
+  ${EndIf}
+
+  ; 便携模式重装：安装目录的 data/ 被清掉时，从备份恢复到 exe 同级
+  ${If} ${FileExists} "$INSTDIR\portable"
+  ${OrIf} ${FileExists} "$INSTDIR\OpenCodeLoop.portable"
+    ${IfNot} ${FileExists} "$INSTDIR\data\config.json"
+      ${If} ${FileExists} "$APPDATA\opencodeloop\reinstall-backup.json"
+        CreateDirectory "$INSTDIR\data"
+        CopyFiles /SILENT "$APPDATA\opencodeloop\reinstall-backup.json" "$INSTDIR\data\config.json"
+      ${EndIf}
+    ${EndIf}
+  ${EndIf}
+!macroend
+
+; 卸载/覆盖安装时由 electron-builder 调用：在安装目录被删除前备份配置
+!macro customUnInstall
+  ${If} ${FileExists} "$INSTDIR\data\config.json"
+    CreateDirectory "$APPDATA\opencodeloop"
+    CopyFiles /SILENT "$INSTDIR\data\config.json" "$APPDATA\opencodeloop\reinstall-backup.json"
   ${EndIf}
 !macroend

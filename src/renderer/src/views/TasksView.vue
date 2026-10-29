@@ -48,8 +48,8 @@ const isNew = ref(false)
 const initialSnapshot = ref('')
 const savedJustNow = ref(false)
 
-const snapshotOf = (t) =>
-  JSON.stringify({ ...t, fallbackModels: [...(t.fallbackModels || [])].sort() })
+// 备选模型顺位会影响切换顺序，脏检查必须保留数组顺序（不能排序）
+const snapshotOf = (t) => JSON.stringify({ ...t, fallbackModels: [...(t.fallbackModels || [])] })
 
 const dialogDirty = computed(() => dialogOpen.value && snapshotOf(editing.value) !== initialSnapshot.value)
 
@@ -151,6 +151,14 @@ async function confirmSave() {
   if (!customModel.value) {
     t.model = ''
     t.fallbackModels = []
+  } else {
+    t.model = String(t.model || '').trim()
+    // 主力与备选互斥：清掉空值与重复主力，保留用户设定的顺位
+    t.fallbackModels = (t.fallbackModels || []).map((m) => String(m || '').trim()).filter((m) => m && m !== t.model)
+    if (!t.model && t.fallbackModels.length) {
+      notify({ type: 'warning', message: '请先选择主力模型，再配置备选模型' })
+      return
+    }
   }
   await saveTask({ ...t })
   selectTask(t.id)
@@ -216,25 +224,39 @@ const filteredModels = computed(() => {
 
 function setPrimaryModel(m) {
   editing.value.model = m
+  // 主力与备选互斥：设为备选的模型再设为主力时从备选链移除
+  editing.value.fallbackModels = (editing.value.fallbackModels || []).filter((x) => x !== m)
   notify({ type: 'info', message: `主力模型已设为 ${m}` })
 }
 
 function appendFallbackModel(m) {
-  const lines = (editing.value.fallbackModels || []).filter((x) => x !== m)
-  lines.push(m)
-  editing.value.fallbackModels = lines
-  notify({ type: 'info', message: `已加入可选模型：${m}` })
+  if (!m) return
+  if (editing.value.model === m) {
+    notify({ type: 'warning', message: `${m} 已是主力模型，无需重复加入备选` })
+    return
+  }
+  const list = [...(editing.value.fallbackModels || [])]
+  if (list.includes(m)) {
+    notify({ type: 'info', message: `${m} 已在备选模型中` })
+    return
+  }
+  list.push(m)
+  editing.value.fallbackModels = list
+  notify({ type: 'info', message: `已加入备选模型（第 ${list.length} 顺位）：${m}` })
 }
 
-function fallbackText(t) {
-  return (t.fallbackModels || []).join('\n')
+function removeFallbackModel(m) {
+  editing.value.fallbackModels = (editing.value.fallbackModels || []).filter((x) => x !== m)
 }
 
-function setFallbackFromText(text) {
-  editing.value.fallbackModels = text
-    .split(/\r?\n/)
-    .map((s) => s.trim())
-    .filter(Boolean)
+/** 调整备选模型的切换顺位：delta = -1 上移 / 1 下移 */
+function moveFallbackModel(index, delta) {
+  const list = [...(editing.value.fallbackModels || [])]
+  const to = index + delta
+  if (index < 0 || index >= list.length || to < 0 || to >= list.length) return
+  const [m] = list.splice(index, 1)
+  list.splice(to, 0, m)
+  editing.value.fallbackModels = list
 }
 
 watch(
@@ -335,6 +357,24 @@ function stop(t) {
 
 function restart(t) {
   api.daemonRestart(t.id)
+}
+
+/** 处于模型受限/备选状态时，可手动立即切回主力（充值或提前解封后） */
+const canProbePrimary = (t) => {
+  const d = daemonState(t.id)
+  return !!d.modelNote && (d.status === 'running' || d.status === 'waiting')
+}
+
+async function probePrimary(t) {
+  if (gateActingIds.has(t.id)) return
+  gateActingIds.add(t.id)
+  try {
+    const r = await api.daemonProbePrimary(t.id)
+    if (r && !r.ok) notify({ type: 'warning', message: `切回主力失败：${r.error || '未知错误'}` })
+    else if (r?.ok) notify({ type: 'info', message: `「${t.name}」已请求立即使用主力模型${r.model ? ` ${r.model}` : ''}` })
+  } finally {
+    gateActingIds.delete(t.id)
+  }
 }
 
 // ---------- 会话等待期处置（仅 waiting 且会话闸门等待时可用） ----------
@@ -493,7 +533,10 @@ const VIEW_MODE_OPTIONS = [
             <span>间隔 {{ t.retryDelay }}s</span>
             <span>{{ t.maxRestarts > 0 ? `上限 ${t.maxRestarts} 次` : '无限重启' }}</span>
             <span v-if="num(t.sessionWaitLimitMin, 30) !== 30 || t.sessionWaitTimeoutAction === 'stop'">{{ waitLimitText(t) }}</span>
-            <span v-if="t.model">
+            <span
+              v-if="t.model"
+              :title="[t.model, ...(t.fallbackModels || [])].join(' → ')"
+            >
               模型 <strong>{{ t.model }}</strong
               >{{ (t.fallbackModels || []).length ? ` +${t.fallbackModels.length} 备` : '' }}
             </span>
@@ -545,6 +588,16 @@ const VIEW_MODE_OPTIONS = [
                 :disabled="daemonState(t.id).status !== 'running' && daemonState(t.id).status !== 'waiting'"
                 @click="restart(t)"
               >重启</UxButton>
+            </UxTooltip>
+            <UxTooltip v-if="canProbePrimary(t)" content="充值/解封后立即切回主力：清除受限记录并用主力模型重试">
+              <UxButton
+                size="sm"
+                variant="ghost"
+                icon="act-check"
+                label="立即切回主力模型"
+                :loading="gateActingIds.has(t.id)"
+                @click="probePrimary(t)"
+              >切回主力</UxButton>
             </UxTooltip>
             <!-- 会话闸门等待期的处置手段：打断目标回合 / 放弃等待直接发送 -->
             <template v-if="sessionGateWait(t)">
@@ -638,6 +691,16 @@ const VIEW_MODE_OPTIONS = [
                 label="立即重启该任务"
                 :disabled="daemonState(t.id).status !== 'running' && daemonState(t.id).status !== 'waiting'"
                 @click="restart(t)"
+              />
+            </UxTooltip>
+            <UxTooltip v-if="canProbePrimary(t)" content="充值/解封后立即切回主力模型">
+              <UxButton
+                size="sm"
+                variant="ghost"
+                icon="act-check"
+                label="立即切回主力模型"
+                :loading="gateActingIds.has(t.id)"
+                @click="probePrimary(t)"
               />
             </UxTooltip>
             <template v-if="sessionGateWait(t)">
@@ -783,7 +846,7 @@ const VIEW_MODE_OPTIONS = [
                   class="ol-textarea"
                   style="min-height: 0; padding: 2px var(--ux-sp-2)"
                   :value="modelDlg.filter"
-                  placeholder="输入关键字过滤，点击候选设置主力 / 加入可选"
+                  placeholder="输入关键字过滤；点击候选设为主力，点右侧 + 加入备选（可多个）"
                   aria-label="过滤模型候选"
                   @input="(e) => (modelDlg.filter = e.target.value)"
                 />
@@ -800,26 +863,88 @@ const VIEW_MODE_OPTIONS = [
                   @keydown.enter="setPrimaryModel(m)"
                 >
                   <UxChip v-if="editing.model === m" tone="success" dot>主力</UxChip>
-                  <UxChip v-else-if="(editing.fallbackModels || []).includes(m)" tone="neutral">可选</UxChip>
+                  <UxChip
+                    v-else-if="(editing.fallbackModels || []).includes(m)"
+                    tone="neutral"
+                  >备选 {{ (editing.fallbackModels || []).indexOf(m) + 1 }}</UxChip>
                   <span class="ol-sess__id" style="flex: 1">{{ m }}</span>
-                  <UxTooltip content="加入可选模型链">
-                    <UxButton size="sm" variant="ghost" icon="act-plus" label="加入可选" @click.stop="appendFallbackModel(m)" />
+                  <UxTooltip
+                    :content="
+                      editing.model === m
+                        ? '已是主力模型'
+                        : (editing.fallbackModels || []).includes(m)
+                          ? '已在备选模型中（可在下方调整顺位或移除）'
+                          : '加入备选模型链（可添加多个）'
+                    "
+                  >
+                    <UxButton
+                      size="sm"
+                      variant="ghost"
+                      icon="act-plus"
+                      label="加入备选模型"
+                      :disabled="editing.model === m || (editing.fallbackModels || []).includes(m)"
+                      @click.stop="appendFallbackModel(m)"
+                    />
                   </UxTooltip>
                 </div>
               </div>
             </template>
             <div>
-              <span class="ol-hint" style="display: block; margin-bottom: 4px">
-                可选模型（每行一个，主力额度不足/限流/鉴权失败后按序顺延；解封后自动切回主力）
-              </span>
-              <textarea
-                class="ol-textarea"
-                style="min-height: 84px; font-family: var(--ux-font-family-mono); font-size: var(--ux-fs-xs)"
-                :value="fallbackText(editing)"
-                aria-label="可选模型列表"
-                placeholder="provider/model"
-                @input="(e) => setFallbackFromText(e.target.value)"
-              ></textarea>
+              <div class="ol-row" style="margin-bottom: 4px">
+                <span class="ol-hint">
+                  备选模型链（可添加多个；主力额度不足/限流/鉴权失败后按顺位切换，解封后自动切回主力）
+                </span>
+                <span style="flex: 1"></span>
+                <UxButton
+                  v-if="!modelDlg.queried"
+                  size="sm"
+                  variant="secondary"
+                  icon="act-search"
+                  label="查询并添加备选模型"
+                  :loading="modelDlg.loading"
+                  @click="queryModels"
+                >查询模型</UxButton>
+              </div>
+              <div v-if="(editing.fallbackModels || []).length" class="ol-sess">
+                <div
+                  v-for="(m, i) in editing.fallbackModels"
+                  :key="m"
+                  class="ol-sess__item ol-fb__item"
+                >
+                  <span class="ol-fb__idx">{{ i + 1 }}</span>
+                  <span class="ol-sess__id" style="flex: 1" :title="m">{{ m }}</span>
+                  <UxTooltip content="上移（更早切换）">
+                    <UxButton
+                      size="sm"
+                      variant="ghost"
+                      label="上移备选模型"
+                      :disabled="i === 0"
+                      @click="moveFallbackModel(i, -1)"
+                    >↑</UxButton>
+                  </UxTooltip>
+                  <UxTooltip content="下移（更晚切换）">
+                    <UxButton
+                      size="sm"
+                      variant="ghost"
+                      label="下移备选模型"
+                      :disabled="i === editing.fallbackModels.length - 1"
+                      @click="moveFallbackModel(i, 1)"
+                    >↓</UxButton>
+                  </UxTooltip>
+                  <UxTooltip content="从备选链移除">
+                    <UxButton
+                      size="sm"
+                      variant="ghost"
+                      icon="act-close"
+                      label="移除备选模型"
+                      @click="removeFallbackModel(m)"
+                    />
+                  </UxTooltip>
+                </div>
+              </div>
+              <p v-else class="ol-hint">
+                暂无备选模型。点击上方「查询模型」，在候选列表中点击右侧 + 即可加入，可添加多个。
+              </p>
             </div>
           </template>
         </div>

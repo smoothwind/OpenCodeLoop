@@ -320,6 +320,19 @@ body {
   white-space: nowrap;
 }
 
+/* 备选模型链：行内可调整顺位/移除，不使用整行点击 */
+.ol-fb__item {
+  cursor: default;
+}
+
+.ol-fb__idx {
+  width: 18px;
+  flex: none;
+  text-align: right;
+  font-size: var(--ux-fs-xs);
+  color: var(--ux-fg-subtle);
+}
+
 .ol-mono {
   font-family: var(--ux-font-family-mono);
   font-size: var(--ux-fs-xs);

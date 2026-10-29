@@ -31,3 +31,5 @@ nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
+  # 卸载不删除 %APPDATA%\opencodeloop：重装后保留任务、预设与设置
+  deleteAppDataOnUninstall: false
